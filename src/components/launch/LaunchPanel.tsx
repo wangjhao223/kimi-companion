@@ -58,6 +58,9 @@ export default function LaunchPanel() {
     queryKey: ["distros"],
     queryFn: listDistros,
     retry: 1,
+    // wsl.exe 偶发失败（VM 未启动等）时不能一次定终身：失败期间每 3 秒自动重试，
+    // 拿到列表后停止轮询
+    refetchInterval: (query) => (query.state.data ? false : 3000),
   });
 
   // 默认选第一个发行版（M2 设置页再做持久化选择）
@@ -86,6 +89,8 @@ export default function LaunchPanel() {
     onSettled: () => {
       queryClient.invalidateQueries({ queryKey: ["hook-installed"] });
       queryClient.invalidateQueries({ queryKey: ["ledger-status"] });
+      // 安装可能顺带重启了 kimi web（端口/URL 会变），刷新启动状态
+      queryClient.invalidateQueries({ queryKey: ["launch-status"] });
     },
   });
 
@@ -161,7 +166,9 @@ export default function LaunchPanel() {
           </div>
           {installMutation.isSuccess && !installError && (
             <p className="mt-1.5 text-sm text-emerald-300">
-              安装完成，历史数据已回填
+              {installMutation.data
+                ? "安装完成，历史数据已回填；已自动重启 kimi web 使记账立即生效"
+                : "安装完成，历史数据已回填"}
             </p>
           )}
           {installError && (
@@ -189,6 +196,13 @@ export default function LaunchPanel() {
             ))}
           </select>
         </div>
+        {distrosQuery.isError && (
+          <p className="mb-1.5 rounded-md border border-red-900/60 bg-red-950/40 px-3 py-2 text-sm text-red-300">
+            获取 WSL 发行版失败：
+            {(distrosQuery.error as Error | null)?.message ?? "未知错误"}
+            （每 3 秒自动重试）
+          </p>
+        )}
 
         <div className="divide-y divide-zinc-800">
           <StatusRow

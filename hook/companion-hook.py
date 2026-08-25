@@ -12,6 +12,8 @@ Design notes:
 - Per-file byte offsets are kept in companion-hook.state.json, so repeat
   invocations only read new bytes.
 - A flock serializes concurrent hook invocations from parallel sessions.
+- After writing new records, POSTs the companion app's sync-trigger port so
+  it syncs immediately (fail-open; the app's 30s polling is the fallback).
 - Every failure is swallowed (exit 0): hooks are fail-open and must never
   break the CLI.
 """
@@ -25,6 +27,20 @@ KIMI_DIR = os.path.expanduser("~/.kimi-code")
 LEDGER = os.path.join(KIMI_DIR, "token-ledger.jsonl")
 STATE = os.path.join(KIMI_DIR, "companion-hook.state.json")
 LOCK = os.path.join(KIMI_DIR, "companion-hook.lock")
+
+# Kimi Companion 应用的联动触发端口（只绑 Windows 侧 loopback）。
+# WSL2 镜像网络模式下 WSL 内可经 127.0.0.1 直达；NAT 模式下够不到，
+# ping 静默失败，应用侧 30 秒轮询兜底。
+TRIGGER_URL = "http://127.0.0.1:51999/sync"
+
+
+def ping_companion():
+    """Notify the companion app to sync the ledger right now. Fail-open."""
+    import urllib.request
+    try:
+        urllib.request.urlopen(TRIGGER_URL, data=b"", timeout=1)
+    except Exception:
+        pass
 
 
 def load_state():
@@ -115,6 +131,8 @@ def main():
                 except Exception:
                     pass  # one bad wire file must not lose the rest
         save_state(state)
+    if total > 0:
+        ping_companion()
     if "--backfill" in sys.argv:
         print(f"backfill: {total} usage records -> {LEDGER}")
     return 0

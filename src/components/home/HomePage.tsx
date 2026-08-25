@@ -9,7 +9,7 @@ export default function HomePage() {
   const summaryQuery = useQuery({
     queryKey: ["stats-summary"],
     queryFn: getStatsSummary,
-    refetchInterval: 30_000,
+    refetchInterval: 10_000,
   });
   const summary = summaryQuery.data;
 

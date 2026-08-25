@@ -41,3 +41,8 @@ fi
 if [[ "${1:-}" == "--backfill" ]]; then
     python3 "$KIMI_DIR/companion-hook.py" --backfill
 fi
+
+# kimi web 只在启动时加载 hooks 配置：已在运行的实例不会加载新配置
+if pgrep -x kimi >/dev/null 2>&1; then
+    echo "提示：检测到 kimi 进程正在运行；若 kimi web 已在运行，请重启它以加载新的 hooks 配置（否则记账不生效）"
+fi

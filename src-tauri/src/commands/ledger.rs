@@ -2,9 +2,10 @@
 
 use tauri::State;
 
+use crate::commands::launcher::SharedInstance;
 use crate::database::{dao, Database};
 use crate::models::LedgerStatus;
-use crate::services::hook;
+use crate::services::{hook, launcher};
 use crate::services::ledger::SharedLedgerStatus;
 
 #[tauri::command]
@@ -14,11 +15,20 @@ pub async fn check_hook_installed(distro: String) -> Result<bool, String> {
         .map_err(|e| format!("任务执行失败: {e}"))?
 }
 
+/// 一键安装记账 hook。返回是否重启了 kimi web：kimi web 只在启动时加载
+/// hooks 配置，已在运行的实例必须重启才会开始记账（只重启 web，不动 TUI）。
 #[tauri::command]
-pub async fn install_hook(distro: String) -> Result<(), String> {
-    tauri::async_runtime::spawn_blocking(move || hook::install(&distro))
-        .await
-        .map_err(|e| format!("任务执行失败: {e}"))?
+pub async fn install_hook(
+    state: State<'_, SharedInstance>,
+    distro: String,
+) -> Result<bool, String> {
+    let state = state.inner().clone();
+    tauri::async_runtime::spawn_blocking(move || {
+        hook::install(&distro)?;
+        launcher::restart_web_if_running(&state, &distro)
+    })
+    .await
+    .map_err(|e| format!("任务执行失败: {e}"))?
 }
 
 /// 账本同步状态：内存里的最近同步时间/last error + 实时查库的总记录数。

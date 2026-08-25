@@ -2,6 +2,8 @@
 
 use std::process::Command;
 
+use base64::Engine;
+
 /// Windows 下 GUI 应用拉起 wsl.exe（控制台子系统）时必须加 CREATE_NO_WINDOW，
 /// 否则每次调用都会闪出一个控制台窗口（状态轮询会反复调它，闪个不停）。
 fn wsl_command(args: &[&str]) -> Command {
@@ -41,8 +43,15 @@ pub fn list_distros() -> Result<Vec<String>, String> {
 }
 
 /// 在指定发行版里执行一条 bash 命令，返回 stdout（trim 后）。
+///
+/// 注意（实测踩坑）：wsl.exe 会把 `--` 之后的参数重新拼接成一条命令字符串，
+/// 交给 /bin/bash -c 再解析一层——脚本里的 $var / $(...) 会被这层外层 shell
+/// 提前展开成空值（例如探测脚本恒输出 "installed= tui="）。因此命令统一
+/// base64 编码传输、WSL 内解码后交给登录 shell 执行，规避双层展开。
 pub fn run_in_wsl(distro: &str, cmd: &str) -> Result<String, String> {
-    let output = wsl_command(&["-d", distro, "--", "bash", "-lc", cmd])
+    let b64 = base64::engine::general_purpose::STANDARD.encode(cmd);
+    let wrapped = format!("echo {b64} | base64 -d | bash -ls");
+    let output = wsl_command(&["-d", distro, "--", "bash", "-lc", &wrapped])
         .output()
         .map_err(|e| format!("无法执行 wsl.exe: {e}"))?;
 

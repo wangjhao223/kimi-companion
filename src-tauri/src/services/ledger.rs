@@ -35,8 +35,37 @@ pub fn spawn_sync_thread(db: Database, status: SharedLedgerStatus) {
         .expect("无法启动账本同步线程");
 }
 
+/// 联动触发端口：hook 写完账本后 POST 一下，应用立即同步一轮。
+pub const SYNC_TRIGGER_PORT: u16 = 51999;
+
+/// 监听 127.0.0.1:SYNC_TRIGGER_PORT，任意连接（ hook 的 POST ）触发一轮立即同步。
+///
+/// 只绑 loopback：WSL2 镜像网络模式下 WSL 内可经 127.0.0.1 到达 Windows 侧；
+/// NAT 模式下 hook 够不到这里，自然退回 30 秒轮询兜底。端口被占时同样退回
+/// 纯轮询。30 秒轮询线程始终存在，本监听只是加速通道。
+pub fn spawn_trigger_listener(db: Database, status: SharedLedgerStatus) {
+    std::thread::Builder::new()
+        .name("ledger-sync-trigger".to_string())
+        .spawn(move || {
+            let listener =
+                match std::net::TcpListener::bind(("127.0.0.1", SYNC_TRIGGER_PORT)) {
+                    Ok(l) => l,
+                    Err(_) => return,
+                };
+            for stream in listener.incoming() {
+                // 请求内容无需解析（只支持 POST /sync 这一语义），回个 200 即可
+                if let Ok(mut s) = stream {
+                    use std::io::Write;
+                    let _ = s.write_all(b"HTTP/1.1 200 OK\r\nContent-Length: 0\r\n\r\n");
+                    sync_round(&db, &status);
+                }
+            }
+        })
+        .expect("无法启动账本同步触发监听");
+}
+
 /// 一轮同步：遍历所有发行版，第一个同步成功即停（账本只会在装了 hook 的发行版里）。
-fn sync_round(db: &Database, status: &SharedLedgerStatus) {
+pub fn sync_round(db: &Database, status: &SharedLedgerStatus) {
     let result = wsl::list_distros().and_then(|distros| {
         let mut last_err: Option<String> = None;
         for distro in &distros {

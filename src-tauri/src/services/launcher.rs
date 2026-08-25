@@ -174,30 +174,16 @@ pub fn start(state: &Arc<Mutex<Option<RunningInstance>>>, distro: &str) -> Resul
             return Err(format!("发行版 {distro} 中没有找到 kimi CLI（which kimi 为空）"));
         }
         // 由长驻 wsl.exe 承载 kimi web 前台进程（见 spawn_persistent 注释），
-        // 日志追加写入，便于排查多次重启。
+        // 日志追加写入，便于排查多次重启。先 cd ~：wsl.exe 会把 Windows 侧的
+        // 工作目录翻译成 Linux 起始目录，不固定的话会落在 /mnt/c/Users/<用户>。
         wsl::spawn_persistent(
             distro,
-            "mkdir -p ~/.kimi-code && exec kimi web >> ~/.kimi-code/companion-web.log 2>&1",
+            "cd ~ && mkdir -p ~/.kimi-code && exec kimi web >> ~/.kimi-code/companion-web.log 2>&1",
         )?;
     }
 
-    // 2. 轮询健康检查（健康检查用稍长的超时，容忍 WSL 转发慢）
-    let deadline = Instant::now();
-    let port = loop {
-        if let Some(port) = probe_running(client, Duration::from_secs(2)) {
-            break port;
-        }
-        if deadline.elapsed() >= HEALTH_WAIT_MAX {
-            return Err(format!(
-                "等待 kimi web 就绪超时（{} 秒）。请检查 WSL 内 ~/.kimi-code/companion-web.log",
-                HEALTH_WAIT_MAX.as_secs()
-            ));
-        }
-        std::thread::sleep(HEALTH_POLL_INTERVAL);
-    };
-
-    // 3. 读 token 并用认证接口验证（文件里的 token 可能与运行中的实例不匹配）
-    let token = read_verified_token(client, distro, port)?;
+    // 2. 轮询健康检查直到就绪，3. 读 token 并验证
+    let (port, token) = wait_ready_and_verify(client, distro)?;
 
     // 4. 没有 kimi TUI 在跑时，弹一个可见终端窗口启动它（失败不阻塞主流程）
     let tui_running = match &probe0 {
@@ -205,7 +191,7 @@ pub fn start(state: &Arc<Mutex<Option<RunningInstance>>>, distro: &str) -> Resul
         None => wsl::probe(distro).map(|p| p.tui_running).unwrap_or(false),
     };
     if !tui_running {
-        let _ = wsl::spawn_visible_terminal(distro, "exec kimi");
+        let _ = wsl::spawn_visible_terminal(distro, "cd ~ && exec kimi");
     }
     // WSL 侧状态已改变，强制下一轮状态轮询重新探测
     invalidate_probe_cache();
@@ -227,6 +213,73 @@ pub fn start(state: &Arc<Mutex<Option<RunningInstance>>>, distro: &str) -> Resul
         port: Some(port),
         url: Some(build_url(port, &token)),
     })
+}
+
+/// 轮询健康检查直到拿到就绪端口（最多 30 秒），再读 token 并验证。
+fn wait_ready_and_verify(client: &Client, distro: &str) -> Result<(u16, String), String> {
+    // 健康检查用稍长的超时，容忍 WSL 转发慢
+    let deadline = Instant::now();
+    let port = loop {
+        if let Some(port) = probe_running(client, Duration::from_secs(2)) {
+            break port;
+        }
+        if deadline.elapsed() >= HEALTH_WAIT_MAX {
+            return Err(format!(
+                "等待 kimi web 就绪超时（{} 秒）。请检查 WSL 内 ~/.kimi-code/companion-web.log",
+                HEALTH_WAIT_MAX.as_secs()
+            ));
+        }
+        std::thread::sleep(HEALTH_POLL_INTERVAL);
+    };
+    // 读 token 并用认证接口验证（文件里的 token 可能与运行中的实例不匹配）
+    let token = read_verified_token(client, distro, port)?;
+    Ok((port, token))
+}
+
+/// 安装/更新记账 hook 后调用：kimi web 只在启动时加载一次 hooks 配置，
+/// 已在运行的实例不会加载新配置（实测确认），因此 web 在跑就重启它让记账
+/// 立即生效。只结束 web 服务进程（pid 取自实例文件），TUI 会话不受影响。
+/// 返回是否执行了重启。
+pub fn restart_web_if_running(
+    state: &Arc<Mutex<Option<RunningInstance>>>,
+    distro: &str,
+) -> Result<bool, String> {
+    let client = shared_client()?;
+    if probe_running(client, Duration::from_millis(800)).is_none() {
+        return Ok(false);
+    }
+
+    // 结束 web 服务进程。shutdown API 在 token 不匹配时会失败，直接按实例
+    // 文件里的 pid kill 最稳；|| true 兜底保证命令恒以 0 退出。
+    wsl::run_in_wsl(
+        distro,
+        "kill $(grep -o '\"pid\":[0-9]*' ~/.kimi-code/server/instances/*.json 2>/dev/null | cut -d: -f2) 2>/dev/null || true",
+    )?;
+
+    // 等端口清空（最多 10 秒）
+    let deadline = Instant::now();
+    while probe_running(client, Duration::from_millis(500)).is_some() {
+        if deadline.elapsed() >= Duration::from_secs(10) {
+            return Err("kimi web 进程未在 10 秒内退出".to_string());
+        }
+        std::thread::sleep(Duration::from_millis(300));
+    }
+
+    wsl::spawn_persistent(
+        distro,
+        "cd ~ && mkdir -p ~/.kimi-code && exec kimi web >> ~/.kimi-code/companion-web.log 2>&1",
+    )?;
+    let (port, token) = wait_ready_and_verify(client, distro)?;
+
+    let mut guard = state.lock().map_err(|_| "应用状态锁已损坏".to_string())?;
+    *guard = Some(RunningInstance {
+        distro: distro.to_string(),
+        port,
+        token,
+    });
+    drop(guard);
+    invalidate_probe_cache();
+    Ok(true)
 }
 
 /// 读 server.token 并调认证接口验证；验证失败时重读一次再验（应对写入时序竞争）。

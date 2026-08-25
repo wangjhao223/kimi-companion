@@ -28,8 +28,9 @@ export function checkHookInstalled(distro: string): Promise<boolean> {
   return invoke<boolean>("check_hook_installed", { distro });
 }
 
-export function installHook(distro: string): Promise<void> {
-  return invoke<void>("install_hook", { distro });
+/** 安装记账 hook。返回 true 表示顺带重启了 kimi web（让新 hook 配置生效）。 */
+export function installHook(distro: string): Promise<boolean> {
+  return invoke<boolean>("install_hook", { distro });
 }
 
 export function getLedgerStatus(): Promise<LedgerStatus> {

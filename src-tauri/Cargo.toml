@@ -1,6 +1,6 @@
 [package]
 name = "kimi-companion"
-version = "1.0.0"
+version = "1.0.1"
 description = "One-click launcher for kimi web running in WSL"
 edition = "2021"
 

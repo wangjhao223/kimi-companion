@@ -25,6 +25,8 @@ pub fn run() {
 
             // 后台账本同步线程（每 30 秒一轮，首轮即全量 backfill）
             services::ledger::spawn_sync_thread(db.clone(), ledger_status.clone());
+            // 联动通道：hook 写完账本后 POST 触发立即同步（只绑 loopback，失败退回轮询）
+            services::ledger::spawn_trigger_listener(db.clone(), ledger_status.clone());
 
             app.manage(db);
             app.manage(ledger_status);
