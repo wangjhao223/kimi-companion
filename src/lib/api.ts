@@ -1,5 +1,6 @@
 import { invoke } from "@tauri-apps/api/core";
 import type {
+  CodexStatus,
   HeatmapDay,
   LaunchStatus,
   LedgerStatus,
@@ -52,4 +53,22 @@ export function getStatsTrend(days?: number): Promise<TrendPoint[]> {
 /** 配额未知（实例未运行/请求失败）时后端返回 null，前端降级显示。 */
 export function getQuota(): Promise<QuotaInfo | null> {
   return invoke<QuotaInfo | null>("get_quota");
+}
+
+// ---------- Codex 侧（Windows 本地 rollout 导入的统计） ----------
+
+export function getCodexSummary(): Promise<StatsSummary> {
+  return invoke<StatsSummary>("get_codex_summary");
+}
+
+export function getCodexHeatmap(days?: number): Promise<HeatmapDay[]> {
+  return invoke<HeatmapDay[]>("get_codex_heatmap", { days: days ?? null });
+}
+
+export function getCodexTrend(days?: number): Promise<TrendPoint[]> {
+  return invoke<TrendPoint[]>("get_codex_trend", { days: days ?? null });
+}
+
+export function getCodexStatus(): Promise<CodexStatus> {
+  return invoke<CodexStatus>("get_codex_status");
 }

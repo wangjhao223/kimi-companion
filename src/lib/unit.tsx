@@ -13,11 +13,12 @@ const UnitContext = createContext<{ unit: Unit; setUnit: (u: Unit) => void }>({
   setUnit: () => {},
 });
 
-/** 全局 token 显示单位（k / M），持久化到 localStorage。 */
+/** 全局 token 显示单位（k / M / B），持久化到 localStorage。 */
 export function UnitProvider({ children }: { children: ReactNode }) {
-  const [unit, setUnitState] = useState<Unit>(() =>
-    localStorage.getItem(STORAGE_KEY) === "k" ? "k" : "M"
-  );
+  const [unit, setUnitState] = useState<Unit>(() => {
+    const saved = localStorage.getItem(STORAGE_KEY);
+    return saved === "k" || saved === "B" ? saved : "M";
+  });
   const setUnit = (u: Unit) => {
     try {
       localStorage.setItem(STORAGE_KEY, u);

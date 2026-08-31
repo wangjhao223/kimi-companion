@@ -19,7 +19,7 @@ export default function ModelShareBar({ summary }: { summary?: StatsSummary }) {
     0
   );
   return (
-    <section className="rounded-xl border border-zinc-800/60 bg-zinc-900/50 p-3.5 shadow-[inset_0_1px_0_rgba(255,255,255,0.03)]">
+    <section className="h-full rounded-xl border border-zinc-800/60 bg-zinc-900/50 p-3.5 shadow-[inset_0_1px_0_rgba(255,255,255,0.03)]">
       <p className="mb-2 text-sm text-zinc-400">按模型占比（全部时间）</p>
       {models.length === 0 || grand === 0 ? (
         <p className="text-sm text-zinc-600">暂无数据</p>

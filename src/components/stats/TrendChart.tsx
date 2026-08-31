@@ -8,15 +8,17 @@ import {
   XAxis,
   YAxis,
 } from "recharts";
-import { getStatsTrend } from "../../lib/api";
+import { getCodexTrend, getStatsTrend } from "../../lib/api";
 import { formatTokens } from "../../lib/format";
 import { useUnit } from "../../lib/unit";
+import type { AgentSource } from "../../types";
 
-export default function TrendChart() {
+export default function TrendChart({ source }: { source: AgentSource }) {
   const { unit } = useUnit();
   const trendQuery = useQuery({
-    queryKey: ["stats-trend", 30],
-    queryFn: () => getStatsTrend(30),
+    queryKey: ["stats-trend", source, 30],
+    queryFn: () =>
+      source === "codex" ? getCodexTrend(30) : getStatsTrend(30),
     refetchInterval: 30_000,
   });
   const data = trendQuery.data ?? [];

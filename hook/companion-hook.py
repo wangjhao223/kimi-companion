@@ -75,10 +75,17 @@ def process_wire(path, state, out):
     with open(path, "rb") as f:
         f.seek(offset)
         chunk = f.read()
-        state[path] = f.tell()
+
+    # 只消费到最后一个换行符：尾部可能是 kimi 正在写入的残缺行。
+    # 若把残缺行当垃圾跳过且偏移越过它，这条记录将永久丢失（实测发生过）。
+    end = chunk.rfind(b"\n")
+    if end == -1:
+        return 0
+    complete = chunk[: end + 1]
+    state[path] = offset + len(complete)
 
     count = 0
-    for line in chunk.splitlines():
+    for line in complete.splitlines():
         if b'"usage.record"' not in line:
             continue
         try:

@@ -196,3 +196,136 @@ pub fn set_meta(conn: &Connection, key: &str, value: &str) -> Result<(), String>
     .map_err(|e| format!("写入 meta[{key}] 失败: {e}"))?;
     Ok(())
 }
+
+/// 删除指定前缀的所有 meta 键（前缀由代码内部生成，不含 LIKE 通配符）。
+pub fn delete_meta_prefix(conn: &Connection, prefix: &str) -> Result<usize, String> {
+    conn.execute(
+        "DELETE FROM meta WHERE key LIKE ?1",
+        [format!("{prefix}%")],
+    )
+    .map_err(|e| format!("按前缀删除 meta[{prefix}*] 失败: {e}"))
+}
+
+// ---------- Codex 侧：codex_events 的写入与聚合（与 usage_events 同构，无 agent 列） ----------
+
+/// 批量写入 codex 用量记录，单事务 + INSERT OR IGNORE 幂等，返回实际插入条数。
+/// 复用 UsageEventRow，agent 字段不写入（codex_events 无此列）。
+pub fn insert_codex_events(conn: &mut Connection, rows: &[UsageEventRow]) -> Result<usize, String> {
+    if rows.is_empty() {
+        return Ok(0);
+    }
+    let tx = conn
+        .transaction()
+        .map_err(|e| format!("开启事务失败: {e}"))?;
+    let mut inserted = 0usize;
+    {
+        let mut stmt = tx
+            .prepare(
+                "INSERT OR IGNORE INTO codex_events
+                 (ts, session_id, model, input_tokens, output_tokens, cache_read, cache_creation)
+                 VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)",
+            )
+            .map_err(|e| format!("预编译插入语句失败: {e}"))?;
+        for row in rows {
+            inserted += stmt
+                .execute(params![
+                    row.ts,
+                    row.session_id,
+                    row.model,
+                    row.input_tokens,
+                    row.output_tokens,
+                    row.cache_read,
+                    row.cache_creation,
+                ])
+                .map_err(|e| format!("写入 codex_events 失败: {e}"))?;
+        }
+    }
+    tx.commit().map_err(|e| format!("提交事务失败: {e}"))?;
+    Ok(inserted)
+}
+
+/// codex_events 总记录数。
+pub fn count_codex_events(conn: &Connection) -> Result<i64, String> {
+    conn.query_row("SELECT COUNT(*) FROM codex_events", [], |r| r.get(0))
+        .map_err(|e| format!("统计 codex_events 失败: {e}"))
+}
+
+/// codex 时间段合计；since_ms 为 None 表示全部记录。
+pub fn codex_sum_usage(conn: &Connection, since_ms: Option<i64>) -> Result<UsageSums, String> {
+    let result = match since_ms {
+        Some(since) => conn.query_row(
+            &format!("SELECT {SUM_COLS} FROM codex_events WHERE ts >= ?1"),
+            [since],
+            |r| read_sums(r, 0),
+        ),
+        None => conn.query_row(&format!("SELECT {SUM_COLS} FROM codex_events"), [], |r| {
+            read_sums(r, 0)
+        }),
+    };
+    result.map_err(|e| format!("聚合 codex 用量失败: {e}"))
+}
+
+/// codex 按模型分组合计，按总量降序。
+pub fn codex_sum_by_model(conn: &Connection) -> Result<Vec<(String, UsageSums)>, String> {
+    let mut stmt = conn
+        .prepare(&format!(
+            "SELECT model, {SUM_COLS} FROM codex_events GROUP BY model \
+             ORDER BY SUM(input_tokens)+SUM(output_tokens)+SUM(cache_read)+SUM(cache_creation) DESC"
+        ))
+        .map_err(|e| format!("预编译 codex 模型聚合失败: {e}"))?;
+    let rows = stmt
+        .query_map([], |r| Ok((r.get::<_, String>(0)?, read_sums(r, 1)?)))
+        .map_err(|e| format!("codex 模型聚合查询失败: {e}"))?;
+    rows.collect::<Result<Vec<_>, _>>()
+        .map_err(|e| format!("读取 codex 模型聚合结果失败: {e}"))
+}
+
+/// codex 按天聚合的稀疏数组，近 days 天，按日期升序。
+pub fn codex_daily_sums(conn: &Connection, days: u32) -> Result<Vec<(String, UsageSums)>, String> {
+    let days = days.max(1);
+    let mut stmt = conn
+        .prepare(&format!(
+            "SELECT date(ts/1000,'unixepoch','localtime') d, {SUM_COLS} \
+             FROM codex_events \
+             WHERE ts >= CAST(strftime('%s','now','localtime','start of day', ?1, 'utc') AS INTEGER) * 1000 \
+             GROUP BY d ORDER BY d"
+        ))
+        .map_err(|e| format!("预编译 codex 按天聚合失败: {e}"))?;
+    let offset = format!("-{} days", days - 1);
+    let rows = stmt
+        .query_map([offset], |r| Ok((r.get::<_, String>(0)?, read_sums(r, 1)?)))
+        .map_err(|e| format!("codex 按天聚合查询失败: {e}"))?;
+    rows.collect::<Result<Vec<_>, _>>()
+        .map_err(|e| format!("读取 codex 按天聚合结果失败: {e}"))
+}
+
+/// codex 按天三序列（输入/输出/缓存），近 days 天，缺口补零。
+pub fn codex_trend_series(conn: &Connection, days: u32) -> Result<Vec<(String, i64, i64, i64)>, String> {
+    let days = days.max(1);
+    let mut stmt = conn
+        .prepare(
+            "WITH RECURSIVE days(d) AS ( \
+               SELECT date('now','localtime', ?1) \
+               UNION ALL \
+               SELECT date(d,'+1 day') FROM days WHERE d < date('now','localtime') \
+             ) \
+             SELECT days.d, \
+                COALESCE(SUM(u.input_tokens),0), \
+                COALESCE(SUM(u.output_tokens),0), \
+                COALESCE(SUM(u.cache_read),0) + COALESCE(SUM(u.cache_creation),0) \
+             FROM days \
+             LEFT JOIN codex_events u \
+               ON date(u.ts/1000,'unixepoch','localtime') = days.d \
+              AND u.ts >= CAST(strftime('%s','now','localtime','start of day', ?1, 'utc') AS INTEGER) * 1000 \
+             GROUP BY days.d ORDER BY days.d",
+        )
+        .map_err(|e| format!("预编译 codex 趋势聚合失败: {e}"))?;
+    let offset = format!("-{} days", days - 1);
+    let rows = stmt
+        .query_map([offset], |r| {
+            Ok((r.get(0)?, r.get(1)?, r.get(2)?, r.get(3)?))
+        })
+        .map_err(|e| format!("codex 趋势聚合查询失败: {e}"))?;
+    rows.collect::<Result<Vec<(String, i64, i64, i64)>, _>>()
+        .map_err(|e| format!("读取 codex 趋势聚合结果失败: {e}"))
+}

@@ -8,8 +8,10 @@ export interface ModelPrice {
   input: number;
   /** 输出 */
   output: number;
-  /** 缓存命中输入 */
+  /** 缓存读取 */
   cache: number;
+  /** 缓存创建（写入）。旧本地数据没有此字段，计价时按 0 处理 */
+  cache_write?: number;
 }
 
 export type PricingTable = Record<string, ModelPrice>;
@@ -64,12 +66,13 @@ export interface TokenUsage {
   cache_creation: number;
 }
 
-/** 按单价表估算费用（元）。 */
+/** 按单价表估算费用（元）。缓存读与缓存写分开计价。 */
 export function computeCost(usage: TokenUsage, price: ModelPrice): number {
   return (
     (usage.input * price.input +
       usage.output * price.output +
-      (usage.cache_read + usage.cache_creation) * price.cache) /
+      usage.cache_read * price.cache +
+      usage.cache_creation * (price.cache_write ?? 0)) /
     1_000_000
   );
 }

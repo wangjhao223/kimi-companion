@@ -136,7 +136,7 @@ export default function LaunchPanel() {
   const hookInstalled = hookQuery.data === true;
 
   return (
-    <div className="flex flex-col gap-2">
+    <div className="flex h-full flex-col gap-2">
       {hookQuery.data === false && (
         <section className="rounded-xl border border-amber-900/60 bg-amber-950/40 p-3">
           <div className="flex items-center justify-between gap-3">
@@ -177,7 +177,7 @@ export default function LaunchPanel() {
         </section>
       )}
 
-      <section className="rounded-xl border border-zinc-800/60 bg-zinc-900/50 p-3 shadow-[inset_0_1px_0_rgba(255,255,255,0.03)]">
+      <section className="flex-1 rounded-xl border border-zinc-800/60 bg-zinc-900/50 p-3.5 shadow-[inset_0_1px_0_rgba(255,255,255,0.03)]">
         <div className="mb-1.5 flex items-center justify-between">
           <label className="text-sm text-zinc-400">WSL 发行版</label>
           <select

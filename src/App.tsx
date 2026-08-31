@@ -1,21 +1,21 @@
 import { useState } from "react";
 import HomePage from "./components/home/HomePage";
-import HeatmapPage from "./components/heatmap/HeatmapPage";
+import CodexPage from "./components/codex/CodexPage";
 import TitleBar from "./components/TitleBar";
 import { UnitProvider, useUnit } from "./lib/unit";
 import type { Unit } from "./lib/format";
 
-type Tab = "home" | "heatmap";
+type Tab = "kimi" | "codex";
 
 const TABS: { key: Tab; label: string }[] = [
-  { key: "home", label: "首页" },
-  { key: "heatmap", label: "详情" },
+  { key: "kimi", label: "kimi" },
+  { key: "codex", label: "codex" },
 ];
 
-const UNITS: Unit[] = ["k", "M"];
+const UNITS: Unit[] = ["k", "M", "B"];
 
 function Shell() {
-  const [tab, setTab] = useState<Tab>("home");
+  const [tab, setTab] = useState<Tab>("kimi");
   const { unit, setUnit } = useUnit();
 
   return (
@@ -56,8 +56,8 @@ function Shell() {
           </div>
         </div>
       </nav>
-      {tab === "home" && <HomePage />}
-      {tab === "heatmap" && <HeatmapPage />}
+      {tab === "kimi" && <HomePage />}
+      {tab === "codex" && <CodexPage />}
     </div>
   );
 }

@@ -40,10 +40,10 @@ function SummaryCard({ label, usage }: { label: string; usage?: PeriodUsage }) {
   );
 }
 
-/** 四张汇总卡（今日/本周/本月/总计），2×2 网格。 */
+/** 四张汇总卡（今日/本周/本月/总计），2×2 网格，撑满外层网格单元。 */
 export default function SummaryCards({ summary }: { summary?: StatsSummary }) {
   return (
-    <div className="grid grid-cols-2 gap-2.5">
+    <div className="grid h-full grid-cols-2 grid-rows-2 gap-2.5">
       <SummaryCard label="今日" usage={summary?.today} />
       <SummaryCard label="本周" usage={summary?.this_week} />
       <SummaryCard label="本月" usage={summary?.this_month} />

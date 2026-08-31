@@ -27,9 +27,13 @@ pub fn run() {
             services::ledger::spawn_sync_thread(db.clone(), ledger_status.clone());
             // 联动通道：hook 写完账本后 POST 触发立即同步（只绑 loopback，失败退回轮询）
             services::ledger::spawn_trigger_listener(db.clone(), ledger_status.clone());
+            // 后台 Codex 同步线程（每 15 秒一轮，扫描本地 rollout 文件增量入库）
+            let codex_status = services::codex::new_shared_status();
+            services::codex::spawn_sync_thread(db.clone(), codex_status.clone());
 
             app.manage(db);
             app.manage(ledger_status);
+            app.manage(codex_status);
             Ok(())
         })
         .invoke_handler(tauri::generate_handler![
@@ -44,6 +48,10 @@ pub fn run() {
             commands::stats::get_stats_heatmap,
             commands::stats::get_stats_trend,
             commands::stats::get_quota,
+            commands::codex::get_codex_summary,
+            commands::codex::get_codex_heatmap,
+            commands::codex::get_codex_trend,
+            commands::codex::get_codex_status,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

@@ -98,3 +98,18 @@ pub struct LedgerStatus {
     /// 最近一轮同步的错误信息，成功则为 None
     pub last_error: Option<String>,
 }
+
+/// Codex 侧同步状态（内存快照 + 实时总数），供 codex 页状态卡展示。
+#[derive(Debug, Clone, Default, Serialize)]
+pub struct CodexStatus {
+    /// 是否找到 Codex 数据目录（%USERPROFILE%\.codex）
+    pub dir_found: bool,
+    /// 数据目录路径（找到时）
+    pub dir: Option<String>,
+    /// codex_events 总记录数
+    pub total_records: i64,
+    /// 最近一次成功扫描的时间（毫秒时间戳），从未成功为 None
+    pub last_sync_at_ms: Option<i64>,
+    /// 最近一轮扫描中某个文件的错误信息，全部成功则为 None
+    pub last_error: Option<String>,
+}

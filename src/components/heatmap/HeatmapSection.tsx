@@ -1,13 +1,9 @@
 import { useMemo, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
-import { getStatsHeatmap, getStatsSummary } from "../../lib/api";
+import { getCodexHeatmap, getStatsHeatmap } from "../../lib/api";
 import { formatTokens } from "../../lib/format";
 import { useUnit } from "../../lib/unit";
-import LedgerSyncCard from "../launch/LedgerSyncCard";
-import QuotaCard from "../stats/QuotaCard";
-import ModelShareBar from "../stats/ModelShareBar";
-import CostCard from "../stats/CostCard";
-import type { HeatmapDay } from "../../types";
+import type { AgentSource, HeatmapDay } from "../../types";
 
 type Dimension = "total" | "output" | "cache";
 
@@ -52,21 +48,17 @@ interface Cell {
   day?: HeatmapDay;
 }
 
-export default function HeatmapPage() {
+/** 年度用量热力图区块（占网格一整行，3 个单元宽）。source 决定数据源（kimi / codex）。 */
+export default function HeatmapSection({ source }: { source: AgentSource }) {
   const [dim, setDim] = useState<Dimension>("total");
   const { unit } = useUnit();
 
   const heatmapQuery = useQuery({
-    queryKey: ["stats-heatmap", DAYS],
-    queryFn: () => getStatsHeatmap(DAYS),
+    queryKey: ["stats-heatmap", source, DAYS],
+    queryFn: () =>
+      source === "codex" ? getCodexHeatmap(DAYS) : getStatsHeatmap(DAYS),
     refetchInterval: 60_000,
   });
-  const summaryQuery = useQuery({
-    queryKey: ["stats-summary"],
-    queryFn: getStatsSummary,
-    refetchInterval: 30_000,
-  });
-  const summary = summaryQuery.data;
 
   // 周 × 星期网格：周日为第一行，列尾对齐到今天，列首回溯到周日
   const { weeks, maxValue } = useMemo(() => {
@@ -100,9 +92,9 @@ export default function HeatmapPage() {
     v <= 0 || maxValue <= 0 ? 0 : Math.min(4, Math.ceil((v / maxValue) * 4));
 
   return (
-    <div className="mx-auto w-full max-w-5xl px-5 py-4">
+    <>
       {heatmapQuery.error && (
-        <p className="mb-3 rounded-md border border-red-900/60 bg-red-950/40 px-3 py-2 text-sm text-red-300">
+        <p className="mb-2.5 rounded-md border border-red-900/60 bg-red-950/40 px-3 py-2 text-sm text-red-300">
           {(heatmapQuery.error as Error).message}
         </p>
       )}
@@ -192,14 +184,6 @@ export default function HeatmapPage() {
           )}
         </div>
       </section>
-
-      {/* 网格下方：费用估算（详细版）、套餐配额、按模型占比、账本同步 */}
-      <div className="mt-2.5 grid grid-cols-1 items-start gap-2.5 md:grid-cols-2">
-        <CostCard summary={summary} />
-        <QuotaCard />
-        <ModelShareBar summary={summary} />
-        <LedgerSyncCard />
-      </div>
-    </div>
+    </>
   );
 }

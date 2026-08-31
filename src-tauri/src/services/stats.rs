@@ -89,6 +89,69 @@ pub fn get_trend(db: &Database, days: Option<u32>) -> Result<Vec<TrendPoint>, St
     })
 }
 
+// ---------- Codex 侧聚合（数据源 codex_events，结构与 kimi 侧一致） ----------
+
+/// Codex 今日 / 本周（周一起）/ 本月 / 总计 + 按模型分组。
+pub fn get_codex_summary(db: &Database) -> Result<StatsSummary, String> {
+    db.with_conn(|conn| {
+        let (today_start, week_start, month_start) = dao::local_period_bounds(conn)?;
+        let by_model = dao::codex_sum_by_model(conn)?
+            .into_iter()
+            .map(|(model, sums)| {
+                let p = to_period(sums);
+                ModelUsage {
+                    model,
+                    input: p.input,
+                    output: p.output,
+                    cache_read: p.cache_read,
+                    cache_creation: p.cache_creation,
+                }
+            })
+            .collect();
+        Ok(StatsSummary {
+            today: to_period(dao::codex_sum_usage(conn, Some(today_start))?),
+            this_week: to_period(dao::codex_sum_usage(conn, Some(week_start))?),
+            this_month: to_period(dao::codex_sum_usage(conn, Some(month_start))?),
+            total: to_period(dao::codex_sum_usage(conn, None)?),
+            by_model,
+        })
+    })
+}
+
+/// Codex 热力图：近 days 天按天聚合的稀疏数组（默认 365 天）。
+pub fn get_codex_heatmap(db: &Database, days: Option<u32>) -> Result<Vec<HeatmapDay>, String> {
+    let days = days.unwrap_or(HEATMAP_DEFAULT_DAYS);
+    db.with_conn(|conn| {
+        Ok(dao::codex_daily_sums(conn, days)?
+            .into_iter()
+            .map(|(date, sums)| HeatmapDay {
+                date,
+                input: sums.0,
+                output: sums.1,
+                cache_read: sums.2,
+                cache_creation: sums.3,
+                total: sums.0 + sums.1 + sums.2 + sums.3,
+            })
+            .collect())
+    })
+}
+
+/// Codex 趋势：近 days 天按天三序列（默认 30 天，缺口补零）。
+pub fn get_codex_trend(db: &Database, days: Option<u32>) -> Result<Vec<TrendPoint>, String> {
+    let days = days.unwrap_or(TREND_DEFAULT_DAYS);
+    db.with_conn(|conn| {
+        Ok(dao::codex_trend_series(conn, days)?
+            .into_iter()
+            .map(|(date, input, output, cache)| TrendPoint {
+                date,
+                input,
+                output,
+                cache,
+            })
+            .collect())
+    })
+}
+
 /// 配额：透传 kimi web 的 /api/v1/oauth/usage。任何失败都返回 Ok(None)。
 pub fn get_quota(state: &SharedInstance) -> Result<Option<QuotaInfo>, String> {
     let instance = state

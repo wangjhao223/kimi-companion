@@ -62,3 +62,16 @@ export interface QuotaInfo {
   summary: QuotaWindow | null;
   limits: QuotaWindow[];
 }
+
+/** 统计数据来源：kimi（WSL 账本）或 codex（Windows 本地 rollout 导入）。 */
+export type AgentSource = "kimi" | "codex";
+
+export interface CodexStatus {
+  /** 是否找到 Codex 数据目录 */
+  dir_found: boolean;
+  /** 数据目录路径（找到时） */
+  dir: string | null;
+  total_records: number;
+  last_sync_at_ms: number | null;
+  last_error: string | null;
+}
