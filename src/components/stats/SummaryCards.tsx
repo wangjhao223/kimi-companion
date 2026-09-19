@@ -10,26 +10,26 @@ function usageTotal(p: PeriodUsage): number {
 function SummaryCard({ label, usage }: { label: string; usage?: PeriodUsage }) {
   const { unit } = useUnit();
   return (
-    <div className="rounded-xl border border-zinc-800/60 bg-zinc-900/50 p-3.5 shadow-[inset_0_1px_0_rgba(255,255,255,0.03)]">
-      <p className="text-sm text-zinc-500">{label}</p>
-      <p className="mt-0.5 font-mono text-lg font-semibold text-zinc-100">
+    <div className="rounded-xl border border-zinc-200 bg-white p-3.5 shadow-[inset_0_1px_0_rgba(255,255,255,0.03)] dark:border-zinc-800/60 dark:bg-zinc-900/50">
+      <p className="text-base text-zinc-500">{label}</p>
+      <p className="mt-0.5 font-mono text-xl font-semibold text-zinc-900 dark:text-zinc-100">
         {usage ? formatTokens(usageTotal(usage), unit) : "—"}
       </p>
       {usage && (
-        <div className="mt-1.5 space-y-0 text-xs text-zinc-500">
+        <div className="mt-1.5 space-y-0 text-sm text-zinc-500">
           <p>
-            输入 <span className="text-zinc-300">{formatTokens(usage.input, unit)}</span>
+            输入 <span className="text-zinc-700 dark:text-zinc-300">{formatTokens(usage.input, unit)}</span>
             {" · "}输出{" "}
-            <span className="text-zinc-300">{formatTokens(usage.output, unit)}</span>
+            <span className="text-zinc-700 dark:text-zinc-300">{formatTokens(usage.output, unit)}</span>
           </p>
           <p>
             缓存{" "}
-            <span className="text-zinc-300">{formatTokens(usage.cache_read, unit)}</span>
+            <span className="text-zinc-700 dark:text-zinc-300">{formatTokens(usage.cache_read, unit)}</span>
           </p>
           {cacheHitRate(usage) !== null && (
             <p>
               命中率{" "}
-              <span className="text-emerald-300/90">
+              <span className="text-emerald-600/90 dark:text-emerald-300/90">
                 {((cacheHitRate(usage) ?? 0) * 100).toFixed(1)}%
               </span>
             </p>

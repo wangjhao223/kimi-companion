@@ -1,8 +1,9 @@
 import { useMemo, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
-import { getCodexHeatmap, getStatsHeatmap } from "../../lib/api";
+import { STATS_APIS } from "../../lib/api";
 import { formatTokens } from "../../lib/format";
 import { useUnit } from "../../lib/unit";
+import { useTheme } from "../../lib/theme";
 import type { AgentSource, HeatmapDay } from "../../types";
 
 type Dimension = "total" | "output" | "cache";
@@ -13,13 +14,20 @@ const DIMENSION_LABELS: Record<Dimension, string> = {
   cache: "缓存",
 };
 
-/** 5 档色阶：0 空档 zinc，1~4 emerald 递增。 */
-const LEVEL_COLORS = [
+/** 5 档色阶：0 空档 zinc，1~4 emerald 递增；亮/暗各一套。 */
+const LEVEL_COLORS_DARK = [
   "bg-zinc-800",
   "bg-emerald-900",
   "bg-emerald-700",
   "bg-emerald-500",
   "bg-emerald-300",
+];
+const LEVEL_COLORS_LIGHT = [
+  "bg-zinc-200",
+  "bg-emerald-200",
+  "bg-emerald-400",
+  "bg-emerald-600",
+  "bg-emerald-700",
 ];
 
 const DAYS = 365;
@@ -48,15 +56,16 @@ interface Cell {
   day?: HeatmapDay;
 }
 
-/** 年度用量热力图区块（占网格一整行，3 个单元宽）。source 决定数据源（kimi / codex）。 */
+/** 年度用量热力图区块（占网格一整行，3 个单元宽）。source 决定数据源（kimi / codex / kimi-win）。 */
 export default function HeatmapSection({ source }: { source: AgentSource }) {
   const [dim, setDim] = useState<Dimension>("total");
   const { unit } = useUnit();
+  const { resolved } = useTheme();
+  const levelColors = resolved === "dark" ? LEVEL_COLORS_DARK : LEVEL_COLORS_LIGHT;
 
   const heatmapQuery = useQuery({
     queryKey: ["stats-heatmap", source, DAYS],
-    queryFn: () =>
-      source === "codex" ? getCodexHeatmap(DAYS) : getStatsHeatmap(DAYS),
+    queryFn: () => STATS_APIS[source].heatmap(DAYS),
     refetchInterval: 60_000,
   });
 
@@ -94,24 +103,24 @@ export default function HeatmapSection({ source }: { source: AgentSource }) {
   return (
     <>
       {heatmapQuery.error && (
-        <p className="mb-2.5 rounded-md border border-red-900/60 bg-red-950/40 px-3 py-2 text-sm text-red-300">
+        <p className="mb-2.5 rounded-md border border-red-300 bg-red-50 px-3 py-2 text-base text-red-600 dark:border-red-900/60 dark:bg-red-950/40 dark:text-red-300">
           {(heatmapQuery.error as Error).message}
         </p>
       )}
 
-      <section className="rounded-xl border border-zinc-800/60 bg-zinc-900/50 p-3.5 shadow-[inset_0_1px_0_rgba(255,255,255,0.03)]">
+      <section className="rounded-xl border border-zinc-200 bg-white p-3.5 shadow-[inset_0_1px_0_rgba(255,255,255,0.03)] dark:border-zinc-800/60 dark:bg-zinc-900/50">
         <div className="mb-2 flex flex-wrap items-center justify-between gap-2.5">
-          <p className="text-sm text-zinc-400">
+          <p className="text-base text-zinc-500 dark:text-zinc-400">
             近一年每天的 token 用量（本地时区）
           </p>
-          <div className="flex rounded-lg border border-zinc-800 p-0.5">
+          <div className="flex rounded-lg border border-zinc-300 p-0.5 dark:border-zinc-800">
             {(Object.keys(DIMENSION_LABELS) as Dimension[]).map((d) => (
               <button
                 key={d}
-                className={`rounded-md px-3 py-1 text-sm ${
+                className={`rounded-md px-3 py-1 text-base ${
                   dim === d
                     ? "bg-emerald-600 text-white"
-                    : "text-zinc-400 hover:text-zinc-200"
+                    : "text-zinc-500 hover:text-zinc-800 dark:text-zinc-400 dark:hover:text-zinc-200"
                 }`}
                 onClick={() => setDim(d)}
               >
@@ -121,12 +130,12 @@ export default function HeatmapSection({ source }: { source: AgentSource }) {
           </div>
         </div>
         {heatmapQuery.isLoading ? (
-          <p className="py-16 text-center text-sm text-zinc-600">加载中…</p>
+          <p className="py-16 text-center text-base text-zinc-400 dark:text-zinc-600">加载中…</p>
         ) : (
           <div className="overflow-x-auto pb-1">
             <div className="inline-flex gap-[3px]">
               {/* 左侧星期标签（一/三/五） */}
-              <div className="mr-1 flex flex-col gap-[3px] text-[10px] leading-3 text-zinc-600">
+              <div className="mr-1 flex flex-col gap-[3px] text-[10px] leading-3 text-zinc-400 dark:text-zinc-600">
                 {["日", "一", "二", "三", "四", "五", "六"].map((label, i) => (
                   <div key={label} className="flex h-3 items-center">
                     {i % 2 === 1 ? label : ""}
@@ -154,7 +163,7 @@ export default function HeatmapSection({ source }: { source: AgentSource }) {
                         ) : (
                           <div
                             key={cell.date}
-                            className={`h-3 w-3 rounded-[2px] ${LEVEL_COLORS[levelOf(dayValue(cell.day, dim))]}`}
+                            className={`h-3 w-3 rounded-[2px] ${levelColors[levelOf(dayValue(cell.day, dim))]}`}
                             title={
                               cell.day
                                 ? `${cell.date}\n输入 ${formatTokens(cell.day.input, unit)} · 输出 ${formatTokens(cell.day.output, unit)} · 缓存 ${formatTokens(cell.day.cache_read + cell.day.cache_creation, unit)}\n总计 ${formatTokens(cell.day.total, unit)}`
@@ -171,14 +180,14 @@ export default function HeatmapSection({ source }: { source: AgentSource }) {
           </div>
         )}
 
-        <div className="mt-2 flex items-center justify-end gap-1.5 text-xs text-zinc-500">
+        <div className="mt-2 flex items-center justify-end gap-1.5 text-sm text-zinc-500">
           <span>少</span>
-          {LEVEL_COLORS.map((c) => (
+          {levelColors.map((c) => (
             <span key={c} className={`h-3 w-3 rounded-[2px] ${c}`} />
           ))}
           <span>多</span>
           {maxValue > 0 && (
-            <span className="ml-3 text-zinc-600">
+            <span className="ml-3 text-zinc-400 dark:text-zinc-600">
               最高单日 {formatTokens(maxValue, unit)}（{DIMENSION_LABELS[dim]}）
             </span>
           )}

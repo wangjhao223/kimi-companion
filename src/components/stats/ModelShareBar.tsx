@@ -19,13 +19,13 @@ export default function ModelShareBar({ summary }: { summary?: StatsSummary }) {
     0
   );
   return (
-    <section className="h-full rounded-xl border border-zinc-800/60 bg-zinc-900/50 p-3.5 shadow-[inset_0_1px_0_rgba(255,255,255,0.03)]">
-      <p className="mb-2 text-sm text-zinc-400">按模型占比（全部时间）</p>
+    <section className="h-full rounded-xl border border-zinc-200 bg-white p-3.5 shadow-[inset_0_1px_0_rgba(255,255,255,0.03)] dark:border-zinc-800/60 dark:bg-zinc-900/50">
+      <p className="mb-2 text-base text-zinc-500 dark:text-zinc-400">按模型占比（全部时间）</p>
       {models.length === 0 || grand === 0 ? (
-        <p className="text-sm text-zinc-600">暂无数据</p>
+        <p className="text-base text-zinc-400 dark:text-zinc-600">暂无数据</p>
       ) : (
         <>
-          <div className="flex h-3 w-full overflow-hidden rounded-full bg-zinc-800">
+          <div className="flex h-3 w-full overflow-hidden rounded-full bg-zinc-200 dark:bg-zinc-800">
             {models.map((m, i) => {
               const total =
                 m.input + m.output + m.cache_read + m.cache_creation;
@@ -44,11 +44,11 @@ export default function ModelShareBar({ summary }: { summary?: StatsSummary }) {
               const total =
                 m.input + m.output + m.cache_read + m.cache_creation;
               return (
-                <div key={m.model} className="flex items-center gap-2 text-xs">
+                <div key={m.model} className="flex items-center gap-2 text-sm">
                   <span
                     className={`h-2.5 w-2.5 rounded-sm ${MODEL_COLORS[i % MODEL_COLORS.length]}`}
                   />
-                  <span className="font-mono text-zinc-300">{m.model}</span>
+                  <span className="font-mono text-zinc-700 dark:text-zinc-300">{m.model}</span>
                   <span className="text-zinc-500">
                     {formatTokens(total, unit)}（{((total / grand) * 100).toFixed(1)}%）
                   </span>

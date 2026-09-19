@@ -4,6 +4,23 @@
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>Kimi Companion</title>
+    <script>
+      // 在 React 挂载前预置 dark class，避免暗色用户启动闪白
+      (function () {
+        var mode = "system";
+        try {
+          var saved = localStorage.getItem("kimi-companion.theme");
+          if (saved === "light" || saved === "dark" || saved === "system") {
+            mode = saved;
+          }
+        } catch (e) {}
+        var dark =
+          mode === "dark" ||
+          (mode === "system" &&
+            window.matchMedia("(prefers-color-scheme: dark)").matches);
+        document.documentElement.classList.toggle("dark", dark);
+      })();
+    </script>
   </head>
   <body>
     <div id="root"></div>

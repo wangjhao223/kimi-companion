@@ -1,6 +1,10 @@
 //! WslService：枚举 WSL 发行版、在指定发行版内执行命令、合并探测 kimi 状态。
 
+use std::collections::HashMap;
+use std::path::PathBuf;
 use std::process::Command;
+use std::sync::{Mutex, OnceLock};
+use std::time::{Duration, Instant};
 
 use base64::Engine;
 
@@ -42,29 +46,94 @@ pub fn list_distros() -> Result<Vec<String>, String> {
         .collect())
 }
 
-/// 在指定发行版里执行一条 bash 命令，返回 stdout（trim 后）。
+/// 一次 WSL 命令执行的完整结果，调用方自行判定退出码（例如 timeout 的 124）。
+#[derive(Debug, Clone)]
+pub struct WslOutput {
+    /// 进程退出码（正常退出时为 Some）
+    pub code: Option<i32>,
+    /// stdout（trim 后）
+    pub stdout: String,
+    /// stderr（trim 后）
+    pub stderr: String,
+}
+
+/// 在指定发行版里执行一条 bash 命令，返回完整结果（不报非 0 退出码）。
 ///
 /// 注意（实测踩坑）：wsl.exe 会把 `--` 之后的参数重新拼接成一条命令字符串，
 /// 交给 /bin/bash -c 再解析一层——脚本里的 $var / $(...) 会被这层外层 shell
 /// 提前展开成空值（例如探测脚本恒输出 "installed= tui="）。因此命令统一
 /// base64 编码传输、WSL 内解码后交给登录 shell 执行，规避双层展开。
-pub fn run_in_wsl(distro: &str, cmd: &str) -> Result<String, String> {
+pub fn run_in_wsl_full(distro: &str, cmd: &str) -> Result<WslOutput, String> {
     let b64 = base64::engine::general_purpose::STANDARD.encode(cmd);
     let wrapped = format!("echo {b64} | base64 -d | bash -ls");
     let output = wsl_command(&["-d", distro, "--", "bash", "-lc", &wrapped])
         .output()
         .map_err(|e| format!("无法执行 wsl.exe: {e}"))?;
 
-    if !output.status.success() {
-        let stderr = String::from_utf8_lossy(&output.stderr);
+    Ok(WslOutput {
+        code: output.status.code(),
+        stdout: String::from_utf8_lossy(&output.stdout).trim().to_string(),
+        stderr: String::from_utf8_lossy(&output.stderr).trim().to_string(),
+    })
+}
+
+/// 在指定发行版里执行一条 bash 命令，返回 stdout（trim 后）；非 0 退出码报错。
+pub fn run_in_wsl(distro: &str, cmd: &str) -> Result<String, String> {
+    let out = run_in_wsl_full(distro, cmd)?;
+    if out.code != Some(0) {
         return Err(format!(
             "WSL 命令失败（distro={distro}, 退出码 {:?}）: {}",
-            output.status.code(),
-            stderr.trim()
+            out.code, out.stderr
         ));
     }
+    Ok(out.stdout)
+}
 
-    Ok(String::from_utf8_lossy(&output.stdout).trim().to_string())
+// ---------- 发行版家目录解析（Windows 侧拼 UNC 路径用） ----------
+
+struct HomeCacheEntry {
+    at: Instant,
+    home: Option<String>,
+}
+
+/// 解析发行版默认用户的家目录（发行版内登录 shell 的 $HOME）。
+/// 成功的结果永久缓存（家目录不会变）；失败缓存 60 秒后重试（WSL 启动早期可能没就绪）。
+fn resolve_home_dir(distro: &str) -> Option<String> {
+    const FAIL_TTL: Duration = Duration::from_secs(60);
+    static CACHE: OnceLock<Mutex<HashMap<String, HomeCacheEntry>>> = OnceLock::new();
+    let cache = CACHE.get_or_init(|| Mutex::new(HashMap::new()));
+    if let Ok(guard) = cache.lock() {
+        if let Some(e) = guard.get(distro) {
+            if e.home.is_some() || e.at.elapsed() < FAIL_TTL {
+                return e.home.clone();
+            }
+        }
+    }
+    let home = run_in_wsl(distro, "echo $HOME")
+        .ok()
+        .filter(|h| h.starts_with('/'));
+    if let Ok(mut guard) = cache.lock() {
+        guard.insert(
+            distro.to_string(),
+            HomeCacheEntry {
+                at: Instant::now(),
+                home: home.clone(),
+            },
+        );
+    }
+    home
+}
+
+/// 拼「发行版家目录相对路径」的两个 UNC 候选：`\\wsl$` 优先，`\\wsl.localhost` 兜底。
+/// 家目录取发行版内真实 $HOME；解析失败回退 /root（兼容以 root 为默认用户的发行版）。
+/// sub 用 Windows 分隔符，如 r".kimi-code\token-ledger.jsonl"、".codex"。
+pub fn unc_home_candidates(distro: &str, sub: &str) -> [PathBuf; 2] {
+    let home = resolve_home_dir(distro).unwrap_or_else(|| "/root".to_string());
+    let seg = home.trim_start_matches('/').replace('/', "\\");
+    [
+        PathBuf::from(format!(r"\\wsl$\{distro}\{seg}\{sub}")),
+        PathBuf::from(format!(r"\\wsl.localhost\{distro}\{seg}\{sub}")),
+    ]
 }
 
 /// 一次 WSL 合并探测的结果（单条 bash 命令拿到，省进程拉起开销）。

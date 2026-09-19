@@ -36,6 +36,38 @@ pub fn run(conn: &Connection) -> Result<(), String> {
         );
         CREATE INDEX IF NOT EXISTS idx_codex_day ON codex_events(ts);
 
+        -- Windows 原生 Kimi Code 桌面端（%USERPROFILE%\.kimi-code\sessions 下的
+        -- wire.jsonl 导入）。与 codex_events 同构（无 agent 列）。
+        -- 增量游标按文件存 meta["win_kimi_off:<path>"]，不单独建表。
+        CREATE TABLE IF NOT EXISTS win_kimi_events (
+            id INTEGER PRIMARY KEY,
+            ts INTEGER NOT NULL,              -- 毫秒时间戳
+            session_id TEXT NOT NULL DEFAULT '',
+            model TEXT NOT NULL DEFAULT '',
+            input_tokens INTEGER NOT NULL DEFAULT 0,
+            output_tokens INTEGER NOT NULL DEFAULT 0,
+            cache_read INTEGER NOT NULL DEFAULT 0,
+            cache_creation INTEGER NOT NULL DEFAULT 0,
+            UNIQUE(ts, session_id, model, input_tokens, output_tokens)
+        );
+        CREATE INDEX IF NOT EXISTS idx_win_kimi_day ON win_kimi_events(ts);
+
+        -- WSL 侧 Codex（各发行版默认用户家目录下的 rollout 文件，家目录按 $HOME
+        -- 解析后经 UNC 路径 \\wsl$\<distro>\... 导入）。与 codex_events 同构（无 agent 列）。
+        -- 增量游标按文件存 meta["wsl_codex_off:<path>"]，不单独建表。
+        CREATE TABLE IF NOT EXISTS wsl_codex_events (
+            id INTEGER PRIMARY KEY,
+            ts INTEGER NOT NULL,              -- 毫秒时间戳
+            session_id TEXT NOT NULL DEFAULT '',
+            model TEXT NOT NULL DEFAULT '',
+            input_tokens INTEGER NOT NULL DEFAULT 0,
+            output_tokens INTEGER NOT NULL DEFAULT 0,
+            cache_read INTEGER NOT NULL DEFAULT 0,
+            cache_creation INTEGER NOT NULL DEFAULT 0,
+            UNIQUE(ts, session_id, model, input_tokens, output_tokens)
+        );
+        CREATE INDEX IF NOT EXISTS idx_wsl_codex_day ON wsl_codex_events(ts);
+
         CREATE TABLE IF NOT EXISTS meta (
             key TEXT PRIMARY KEY,
             value TEXT NOT NULL

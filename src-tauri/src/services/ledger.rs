@@ -139,16 +139,14 @@ pub fn sync_distro(db: &Database, distro: &str) -> Result<usize, String> {
 }
 
 /// 依次尝试 `\\wsl$` 和 `\\wsl.localhost` 两种 UNC 前缀打开账本。
+/// 家目录段按发行版真实 $HOME 解析（见 wsl::unc_home_candidates），不硬编码 root。
 fn open_ledger(distro: &str) -> Result<std::fs::File, String> {
-    let candidates = [
-        format!(r"\\wsl$\{distro}\root\.kimi-code\token-ledger.jsonl"),
-        format!(r"\\wsl.localhost\{distro}\root\.kimi-code\token-ledger.jsonl"),
-    ];
+    let candidates = wsl::unc_home_candidates(distro, r".kimi-code\token-ledger.jsonl");
     let mut last_err = String::new();
     for path in &candidates {
         match std::fs::File::open(path) {
             Ok(f) => return Ok(f),
-            Err(e) => last_err = format!("{path}: {e}"),
+            Err(e) => last_err = format!("{}: {e}", path.display()),
         }
     }
     Err(format!("无法打开账本文件: {last_err}"))

@@ -27,13 +27,24 @@ pub fn run() {
             services::ledger::spawn_sync_thread(db.clone(), ledger_status.clone());
             // 联动通道：hook 写完账本后 POST 触发立即同步（只绑 loopback，失败退回轮询）
             services::ledger::spawn_trigger_listener(db.clone(), ledger_status.clone());
-            // 后台 Codex 同步线程（每 15 秒一轮，扫描本地 rollout 文件增量入库）
+            // 后台 Codex 同步线程（每 15 秒一轮：Windows 侧扫本地 rollout 文件，
+            // WSL 侧枚举发行版扫 \\wsl$\<distro><$HOME 解析>\.codex，各自增量入库）
             let codex_status = services::codex::new_shared_status();
-            services::codex::spawn_sync_thread(db.clone(), codex_status.clone());
+            let wsl_codex_status = services::codex::new_shared_wsl_status();
+            services::codex::spawn_sync_thread(
+                db.clone(),
+                codex_status.clone(),
+                wsl_codex_status.clone(),
+            );
+            // 后台 Windows Kimi Code 桌面端同步线程（每 15 秒一轮，扫描 wire.jsonl 增量入库）
+            let win_kimi_status = services::win_kimi::new_shared_status();
+            services::win_kimi::spawn_sync_thread(db.clone(), win_kimi_status.clone());
 
             app.manage(db);
             app.manage(ledger_status);
             app.manage(codex_status);
+            app.manage(wsl_codex_status);
+            app.manage(win_kimi_status);
             Ok(())
         })
         .invoke_handler(tauri::generate_handler![
@@ -47,11 +58,23 @@ pub fn run() {
             commands::stats::get_stats_summary,
             commands::stats::get_stats_heatmap,
             commands::stats::get_stats_trend,
-            commands::stats::get_quota,
             commands::codex::get_codex_summary,
             commands::codex::get_codex_heatmap,
             commands::codex::get_codex_trend,
             commands::codex::get_codex_status,
+            commands::wsl_codex::get_wsl_codex_summary,
+            commands::wsl_codex::get_wsl_codex_heatmap,
+            commands::wsl_codex::get_wsl_codex_trend,
+            commands::wsl_codex::get_wsl_codex_status,
+            commands::win_kimi::get_win_kimi_summary,
+            commands::win_kimi::get_win_kimi_heatmap,
+            commands::win_kimi::get_win_kimi_trend,
+            commands::win_kimi::get_win_kimi_status,
+            commands::win_kimi::get_desktop_apps_status,
+            commands::win_kimi::start_desktop_app,
+            commands::upgrade::get_kimi_cli_version,
+            commands::upgrade::check_kimi_cli_update,
+            commands::upgrade::update_kimi_cli,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

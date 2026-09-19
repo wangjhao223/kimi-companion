@@ -3,7 +3,11 @@
 @tailwind utilities;
 
 body {
-  @apply bg-zinc-950 text-zinc-100 antialiased;
+  @apply bg-zinc-50 text-zinc-900 antialiased dark:bg-zinc-950 dark:text-zinc-100;
+}
+
+/* 深色渐变背景图只在暗色主题出现 */
+html.dark body {
   background-image:
     radial-gradient(ellipse 90% 55% at 50% -15%, rgba(16, 185, 129, 0.07), transparent),
     linear-gradient(to bottom, #09090b 0%, #0e0e11 100%);
@@ -42,4 +46,17 @@ html {
 
 ::-webkit-scrollbar-corner {
   background: transparent;
+}
+
+/* 亮色主题滚动条（zinc-300/400 系） */
+html:not(.dark) * {
+  scrollbar-color: rgb(161 161 170 / 0.5) transparent;
+}
+
+html:not(.dark) ::-webkit-scrollbar-thumb {
+  background-color: rgb(161 161 170 / 0.5); /* zinc-400/50 */
+}
+
+html:not(.dark) ::-webkit-scrollbar-thumb:hover {
+  background-color: rgb(161 161 170 / 0.8); /* zinc-400/80 */
 }

@@ -36,16 +36,16 @@ export default function CostCard({ summary }: { summary?: StatsSummary }) {
   );
 
   return (
-    <section className="h-full rounded-xl border border-zinc-800/60 bg-zinc-900/50 p-3.5 shadow-[inset_0_1px_0_rgba(255,255,255,0.03)]">
+    <section className="h-full rounded-xl border border-zinc-200 bg-white p-3.5 shadow-[inset_0_1px_0_rgba(255,255,255,0.03)] dark:border-zinc-800/60 dark:bg-zinc-900/50">
       <div className="mb-2 flex items-baseline justify-between gap-3">
-        <p className="text-sm text-zinc-400">费用估算（全部时间）</p>
-        <p className="font-mono text-sm text-emerald-300">{formatCost(totalCost)}</p>
+        <p className="text-base text-zinc-500 dark:text-zinc-400">费用估算（全部时间）</p>
+        <p className="font-mono text-base text-emerald-600 dark:text-emerald-300">{formatCost(totalCost)}</p>
       </div>
       {models.length === 0 ? (
-        <p className="text-sm text-zinc-600">暂无数据</p>
+        <p className="text-base text-zinc-400 dark:text-zinc-600">暂无数据</p>
       ) : (
         <div className="space-y-2">
-          <div className="grid grid-cols-[1fr_repeat(4,5.5rem)_4.5rem] items-center gap-2 text-[11px] text-zinc-600">
+          <div className="grid grid-cols-[1fr_repeat(4,6.5rem)_4.5rem] items-center gap-2 text-xs text-zinc-400 dark:text-zinc-600">
             <span>模型</span>
             {PRICE_FIELDS.map((f) => (
               <span key={f.key} className="text-right">
@@ -60,10 +60,10 @@ export default function CostCard({ summary }: { summary?: StatsSummary }) {
             return (
               <div
                 key={m.model}
-                className="grid grid-cols-[1fr_repeat(4,5.5rem)_4.5rem] items-center gap-2 text-xs"
+                className="grid grid-cols-[1fr_repeat(4,6.5rem)_4.5rem] items-center gap-2 text-sm"
               >
                 <span
-                  className="truncate font-mono text-zinc-300"
+                  className="truncate font-mono text-zinc-700 dark:text-zinc-300"
                   title={`${m.model} · 用量 ${formatTokens(m.input + m.output + m.cache_read + m.cache_creation, unit)}`}
                 >
                   {m.model}
@@ -82,16 +82,16 @@ export default function CostCard({ summary }: { summary?: StatsSummary }) {
                     onChange={(e) =>
                       update(m.model, f.key, Number(e.target.value) || 0)
                     }
-                    className="w-full rounded border border-zinc-800 bg-zinc-900 px-1.5 py-1 text-right font-mono text-zinc-200 outline-none focus:border-zinc-600 [appearance:textfield] [&::-webkit-inner-spin-button]:appearance-none [&::-webkit-outer-spin-button]:appearance-none"
+                    className="w-full rounded border border-zinc-300 bg-white px-1.5 py-1 text-right font-mono text-zinc-800 outline-none focus:border-zinc-400 dark:border-zinc-800 dark:bg-zinc-900 dark:text-zinc-200 dark:focus:border-zinc-600 [appearance:textfield] [&::-webkit-inner-spin-button]:appearance-none [&::-webkit-outer-spin-button]:appearance-none"
                   />
                 ))}
-                <span className="text-right font-mono text-zinc-300">
+                <span className="text-right font-mono text-zinc-700 dark:text-zinc-300">
                   {formatCost(cost)}
                 </span>
               </div>
             );
           })}
-          <p className="pt-1 text-[11px] leading-4 text-zinc-600">
+          <p className="pt-1 text-xs leading-4 text-zinc-400 dark:text-zinc-600">
             单价为人民币 元/百万 tokens，自行按供应商价格页填写，本地保存。
             订阅制模型（如 kimi-code 托管套餐）不按量计费，留 0 即可。
           </p>

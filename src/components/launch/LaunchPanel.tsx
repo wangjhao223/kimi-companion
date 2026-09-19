@@ -41,9 +41,9 @@ function StatusRow({
     <div className="flex items-center justify-between py-0.5">
       <div className="flex items-center gap-3">
         <StatusDot ok={ok} busy={busy} />
-        <span className="text-sm text-zinc-300">{label}</span>
+        <span className="text-base text-zinc-700 dark:text-zinc-300">{label}</span>
       </div>
-      {detail && <span className="text-sm text-zinc-500">{detail}</span>}
+      {detail && <span className="text-base text-zinc-500">{detail}</span>}
     </div>
   );
 }
@@ -138,19 +138,19 @@ export default function LaunchPanel() {
   return (
     <div className="flex h-full flex-col gap-2">
       {hookQuery.data === false && (
-        <section className="rounded-xl border border-amber-900/60 bg-amber-950/40 p-3">
+        <section className="rounded-xl border border-amber-300 bg-amber-50 p-3 dark:border-amber-900/60 dark:bg-amber-950/40">
           <div className="flex items-center justify-between gap-3">
             <div>
-              <p className="text-sm font-medium text-amber-200">
+              <p className="text-base font-medium text-amber-700 dark:text-amber-200">
                 记账 hook 未安装
               </p>
-              <p className="mt-0.5 text-sm text-amber-300/70">
+              <p className="mt-0.5 text-base text-amber-600/70 dark:text-amber-300/70">
                 安装后 Kimi Companion 才能记录 token 用量（写入 WSL 的
                 ~/.kimi-code，含自动备份）
               </p>
             </div>
             <button
-              className="shrink-0 rounded-lg bg-amber-600 px-3.5 py-1.5 text-sm font-medium text-white hover:bg-amber-500 disabled:opacity-50"
+              className="shrink-0 rounded-lg bg-amber-600 px-3.5 py-1.5 text-base font-medium text-white hover:bg-amber-500 disabled:opacity-50"
               onClick={() => distro && installMutation.mutate(distro)}
               disabled={installMutation.isPending || !distro}
             >
@@ -165,23 +165,23 @@ export default function LaunchPanel() {
             </button>
           </div>
           {installMutation.isSuccess && !installError && (
-            <p className="mt-1.5 text-sm text-emerald-300">
+            <p className="mt-1.5 text-base text-emerald-600 dark:text-emerald-300">
               {installMutation.data
                 ? "安装完成，历史数据已回填；已自动重启 kimi web 使记账立即生效"
                 : "安装完成，历史数据已回填"}
             </p>
           )}
           {installError && (
-            <p className="mt-1.5 text-sm text-red-300">{installError}</p>
+            <p className="mt-1.5 text-base text-red-600 dark:text-red-300">{installError}</p>
           )}
         </section>
       )}
 
-      <section className="flex-1 rounded-xl border border-zinc-800/60 bg-zinc-900/50 p-3.5 shadow-[inset_0_1px_0_rgba(255,255,255,0.03)]">
+      <section className="flex-1 rounded-xl border border-zinc-200 bg-white p-3.5 shadow-[inset_0_1px_0_rgba(255,255,255,0.03)] dark:border-zinc-800/60 dark:bg-zinc-900/50">
         <div className="mb-1.5 flex items-center justify-between">
-          <label className="text-sm text-zinc-400">WSL 发行版</label>
+          <label className="text-base text-zinc-500 dark:text-zinc-400">WSL 发行版</label>
           <select
-            className="rounded-md border border-zinc-700 bg-zinc-800 px-2 py-1 text-sm outline-none focus:border-zinc-500"
+            className="rounded-md border border-zinc-300 bg-white px-2 py-1 text-base outline-none focus:border-zinc-400 dark:border-zinc-700 dark:bg-zinc-800 dark:focus:border-zinc-500"
             value={distro ?? ""}
             onChange={(e) => setDistro(e.target.value || null)}
             disabled={!distrosQuery.data?.length}
@@ -197,14 +197,14 @@ export default function LaunchPanel() {
           </select>
         </div>
         {distrosQuery.isError && (
-          <p className="mb-1.5 rounded-md border border-red-900/60 bg-red-950/40 px-3 py-2 text-sm text-red-300">
+          <p className="mb-1.5 rounded-md border border-red-300 bg-red-50 px-3 py-2 text-base text-red-600 dark:border-red-900/60 dark:bg-red-950/40 dark:text-red-300">
             获取 WSL 发行版失败：
             {(distrosQuery.error as Error | null)?.message ?? "未知错误"}
             （每 3 秒自动重试）
           </p>
         )}
 
-        <div className="divide-y divide-zinc-800">
+        <div className="divide-y divide-zinc-300 dark:divide-zinc-800">
           <StatusRow
             label="WSL 状态"
             ok={status?.wsl_ok ?? false}
@@ -234,7 +234,7 @@ export default function LaunchPanel() {
         <div className="mt-2.5 flex gap-2">
           {status?.running ? (
             <button
-              className="flex-1 rounded-lg bg-red-600/90 px-4 py-2 text-sm font-medium hover:bg-red-500 disabled:opacity-50"
+              className="flex-1 rounded-lg bg-red-600/90 px-4 py-2 text-base font-medium text-white hover:bg-red-500 disabled:opacity-50"
               onClick={() => stopMutation.mutate()}
               disabled={stopMutation.isPending}
             >
@@ -242,7 +242,7 @@ export default function LaunchPanel() {
             </button>
           ) : (
             <button
-              className="flex-1 rounded-lg bg-emerald-600 px-4 py-2 text-sm font-medium hover:bg-emerald-500 disabled:opacity-50"
+              className="flex-1 rounded-lg bg-emerald-600 px-4 py-2 text-base font-medium text-white hover:bg-emerald-500 disabled:opacity-50"
               onClick={() => distro && startMutation.mutate(distro)}
               disabled={starting || !distro}
             >
@@ -252,33 +252,33 @@ export default function LaunchPanel() {
         </div>
 
         {starting && (
-          <p className="mt-2 flex items-center gap-2 text-sm text-amber-300/90">
-            <span className="h-3.5 w-3.5 animate-spin rounded-full border-2 border-amber-300/40 border-t-amber-300" />
+          <p className="mt-2 flex items-center gap-2 text-base text-amber-600/90 dark:text-amber-300/90">
+            <span className="h-3.5 w-3.5 animate-spin rounded-full border-2 border-amber-600/40 border-t-amber-600 dark:border-amber-300/40 dark:border-t-amber-300" />
             首次启动需要冷启动 WSL，请耐心等待（最长约 30 秒）
           </p>
         )}
 
         {error && (
-          <p className="mt-2 rounded-md border border-red-900/60 bg-red-950/40 px-3 py-2 text-sm text-red-300">
+          <p className="mt-2 rounded-md border border-red-300 bg-red-50 px-3 py-2 text-base text-red-600 dark:border-red-900/60 dark:bg-red-950/40 dark:text-red-300">
             {error}
           </p>
         )}
       </section>
 
       {status?.running && status.url && (
-        <section className="rounded-xl border border-zinc-800/60 bg-zinc-900/50 px-3 py-2.5 shadow-[inset_0_1px_0_rgba(255,255,255,0.03)]">
+        <section className="rounded-xl border border-zinc-200 bg-white px-3 py-2.5 shadow-[inset_0_1px_0_rgba(255,255,255,0.03)] dark:border-zinc-800/60 dark:bg-zinc-900/50">
           <div className="flex items-center gap-2.5">
             <div className="min-w-0 flex-1">
-              <p className="text-xs text-zinc-500">kimi web 地址</p>
+              <p className="text-sm text-zinc-500">kimi web 地址</p>
               <p
-                className="truncate font-mono text-[13px] text-emerald-300"
+                className="truncate font-mono text-base text-emerald-600 dark:text-emerald-300"
                 title={status.url}
               >
                 {status.url}
               </p>
             </div>
             <button
-              className="shrink-0 rounded-lg border border-zinc-700 px-3.5 py-1.5 text-sm hover:bg-zinc-800"
+              className="shrink-0 rounded-lg border border-zinc-300 px-3.5 py-1.5 text-base hover:bg-zinc-200 dark:border-zinc-700 dark:hover:bg-zinc-800"
               onClick={() => status.url && openUrl(status.url)}
             >
               在浏览器打开
