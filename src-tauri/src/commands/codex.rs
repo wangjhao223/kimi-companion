@@ -4,7 +4,7 @@
 use tauri::State;
 
 use crate::database::Database;
-use crate::models::{CodexStatus, HeatmapDay, StatsSummary, TrendPoint};
+use crate::models::{CodexStatus, HeatmapDay, RatePoint, SpeedStats, StatsSummary, TrendPoint};
 use crate::services::codex::SharedCodexStatus;
 use crate::services::stats;
 
@@ -34,6 +34,27 @@ pub async fn get_codex_trend(
 ) -> Result<Vec<TrendPoint>, String> {
     let db = db.inner().clone();
     tauri::async_runtime::spawn_blocking(move || stats::get_codex_trend(&db, days))
+        .await
+        .map_err(|e| format!("任务执行失败: {e}"))?
+}
+
+/// Codex 速率：近 minutes 分钟的 RPM/TPM 分钟序列（默认 60 分钟，缺口补零）。
+#[tauri::command]
+pub async fn get_codex_rates(
+    db: State<'_, Database>,
+    minutes: Option<u32>,
+) -> Result<Vec<RatePoint>, String> {
+    let db = db.inner().clone();
+    tauri::async_runtime::spawn_blocking(move || stats::get_codex_rates(&db, minutes))
+        .await
+        .map_err(|e| format!("任务执行失败: {e}"))?
+}
+
+/// Codex 输出速度：当前瞬时速度 + 近 1 小时 / 今日加权均速（tok/s）。
+#[tauri::command]
+pub async fn get_codex_speed(db: State<'_, Database>) -> Result<SpeedStats, String> {
+    let db = db.inner().clone();
+    tauri::async_runtime::spawn_blocking(move || stats::get_codex_speed(&db))
         .await
         .map_err(|e| format!("任务执行失败: {e}"))?
 }

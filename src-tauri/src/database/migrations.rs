@@ -74,5 +74,27 @@ pub fn run(conn: &Connection) -> Result<(), String> {
         );
         "#,
     )
-    .map_err(|e| format!("数据库迁移失败: {e}"))
+    .map_err(|e| format!("数据库迁移失败: {e}"))?;
+
+    // v2：四张事件表加 duration_ms（生成耗时毫秒，nullable；历史行保持 NULL）。
+    // pragma_table_info 检查 + ALTER TABLE ADD COLUMN，幂等且不重建表。
+    for table in [
+        "usage_events",
+        "codex_events",
+        "win_kimi_events",
+        "wsl_codex_events",
+    ] {
+        let has: bool = conn
+            .query_row(
+                "SELECT COUNT(*) > 0 FROM pragma_table_info(?1) WHERE name = 'duration_ms'",
+                [table],
+                |r| r.get(0),
+            )
+            .map_err(|e| format!("检查 {table} 表结构失败: {e}"))?;
+        if !has {
+            conn.execute_batch(&format!("ALTER TABLE {table} ADD COLUMN duration_ms INTEGER"))
+                .map_err(|e| format!("{table} 加 duration_ms 列失败: {e}"))?;
+        }
+    }
+    Ok(())
 }

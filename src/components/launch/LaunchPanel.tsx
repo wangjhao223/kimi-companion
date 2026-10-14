@@ -138,7 +138,7 @@ export default function LaunchPanel() {
   return (
     <div className="flex h-full flex-col gap-2">
       {hookQuery.data === false && (
-        <section className="rounded-xl border border-amber-300 bg-amber-50 p-3 dark:border-amber-900/60 dark:bg-amber-950/40">
+        <section className="min-w-0 rounded-xl border border-amber-300 bg-amber-50 px-1.5 py-2 dark:border-amber-900/60 dark:bg-amber-950/40">
           <div className="flex items-center justify-between gap-3">
             <div>
               <p className="text-base font-medium text-amber-700 dark:text-amber-200">
@@ -150,7 +150,7 @@ export default function LaunchPanel() {
               </p>
             </div>
             <button
-              className="shrink-0 rounded-lg bg-amber-600 px-3.5 py-1.5 text-base font-medium text-white hover:bg-amber-500 disabled:opacity-50"
+              className="shrink-0 rounded-lg bg-amber-600 px-1.5 py-1.5 text-base font-medium text-white hover:bg-amber-500 disabled:opacity-50"
               onClick={() => distro && installMutation.mutate(distro)}
               disabled={installMutation.isPending || !distro}
             >
@@ -177,11 +177,11 @@ export default function LaunchPanel() {
         </section>
       )}
 
-      <section className="flex-1 rounded-xl border border-zinc-200 bg-white p-3.5 shadow-[inset_0_1px_0_rgba(255,255,255,0.03)] dark:border-zinc-800/60 dark:bg-zinc-900/50">
-        <div className="mb-1.5 flex items-center justify-between">
+      <section className="min-w-0 flex-1 rounded-xl border border-zinc-200 bg-white px-1.5 py-2.5 shadow-[inset_0_1px_0_rgba(255,255,255,0.03)] dark:border-zinc-800/60 dark:bg-zinc-900/50">
+        <div className="mb-1 flex items-center justify-between">
           <label className="text-base text-zinc-500 dark:text-zinc-400">WSL 发行版</label>
           <select
-            className="rounded-md border border-zinc-300 bg-white px-2 py-1 text-base outline-none focus:border-zinc-400 dark:border-zinc-700 dark:bg-zinc-800 dark:focus:border-zinc-500"
+            className="rounded-md border border-zinc-300 bg-white px-1.5 py-1 text-base outline-none focus:border-zinc-400 dark:border-zinc-700 dark:bg-zinc-800 dark:focus:border-zinc-500"
             value={distro ?? ""}
             onChange={(e) => setDistro(e.target.value || null)}
             disabled={!distrosQuery.data?.length}
@@ -197,7 +197,7 @@ export default function LaunchPanel() {
           </select>
         </div>
         {distrosQuery.isError && (
-          <p className="mb-1.5 rounded-md border border-red-300 bg-red-50 px-3 py-2 text-base text-red-600 dark:border-red-900/60 dark:bg-red-950/40 dark:text-red-300">
+          <p className="mb-1.5 rounded-md border border-red-300 bg-red-50 px-1.5 py-2 text-base text-red-600 dark:border-red-900/60 dark:bg-red-950/40 dark:text-red-300">
             获取 WSL 发行版失败：
             {(distrosQuery.error as Error | null)?.message ?? "未知错误"}
             （每 3 秒自动重试）
@@ -231,10 +231,10 @@ export default function LaunchPanel() {
           />
         </div>
 
-        <div className="mt-2.5 flex gap-2">
+        <div className="mt-2 flex gap-2">
           {status?.running ? (
             <button
-              className="flex-1 rounded-lg bg-red-600/90 px-4 py-2 text-base font-medium text-white hover:bg-red-500 disabled:opacity-50"
+              className="flex-1 rounded-lg bg-red-600/90 px-2 py-1.5 text-base font-medium text-white hover:bg-red-500 disabled:opacity-50"
               onClick={() => stopMutation.mutate()}
               disabled={stopMutation.isPending}
             >
@@ -242,7 +242,7 @@ export default function LaunchPanel() {
             </button>
           ) : (
             <button
-              className="flex-1 rounded-lg bg-emerald-600 px-4 py-2 text-base font-medium text-white hover:bg-emerald-500 disabled:opacity-50"
+              className="flex-1 rounded-lg bg-emerald-600 px-2 py-1.5 text-base font-medium text-white hover:bg-emerald-500 disabled:opacity-50"
               onClick={() => distro && startMutation.mutate(distro)}
               disabled={starting || !distro}
             >
@@ -259,15 +259,15 @@ export default function LaunchPanel() {
         )}
 
         {error && (
-          <p className="mt-2 rounded-md border border-red-300 bg-red-50 px-3 py-2 text-base text-red-600 dark:border-red-900/60 dark:bg-red-950/40 dark:text-red-300">
+          <p className="mt-2 rounded-md border border-red-300 bg-red-50 px-1.5 py-2 text-base text-red-600 dark:border-red-900/60 dark:bg-red-950/40 dark:text-red-300">
             {error}
           </p>
         )}
       </section>
 
       {status?.running && status.url && (
-        <section className="rounded-xl border border-zinc-200 bg-white px-3 py-2.5 shadow-[inset_0_1px_0_rgba(255,255,255,0.03)] dark:border-zinc-800/60 dark:bg-zinc-900/50">
-          <div className="flex items-center gap-2.5">
+        <section className="min-w-0 rounded-xl border border-zinc-200 bg-white px-1.5 py-2 shadow-[inset_0_1px_0_rgba(255,255,255,0.03)] dark:border-zinc-800/60 dark:bg-zinc-900/50">
+          <div className="flex items-center gap-2">
             <div className="min-w-0 flex-1">
               <p className="text-sm text-zinc-500">kimi web 地址</p>
               <p
@@ -278,7 +278,7 @@ export default function LaunchPanel() {
               </p>
             </div>
             <button
-              className="shrink-0 rounded-lg border border-zinc-300 px-3.5 py-1.5 text-base hover:bg-zinc-200 dark:border-zinc-700 dark:hover:bg-zinc-800"
+              className="shrink-0 rounded-lg border border-zinc-300 px-1.5 py-1.5 text-base hover:bg-zinc-200 dark:border-zinc-700 dark:hover:bg-zinc-800"
               onClick={() => status.url && openUrl(status.url)}
             >
               在浏览器打开

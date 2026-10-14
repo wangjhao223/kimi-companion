@@ -11,7 +11,7 @@ export default function LedgerSyncCard() {
   const ledger = ledgerQuery.data;
 
   return (
-    <section className="rounded-xl border border-zinc-200 bg-white p-3.5 shadow-[inset_0_1px_0_rgba(255,255,255,0.03)] dark:border-zinc-800/60 dark:bg-zinc-900/50">
+    <section className="min-w-0 rounded-xl border border-zinc-200 bg-white px-1.5 py-2.5 shadow-[inset_0_1px_0_rgba(255,255,255,0.03)] dark:border-zinc-800/60 dark:bg-zinc-900/50">
       <div className="flex items-center justify-between">
         <span className="text-base text-zinc-700 dark:text-zinc-300">
           账本同步 ·{" "}
@@ -27,7 +27,7 @@ export default function LedgerSyncCard() {
         </span>
       </div>
       {ledger?.last_error && (
-        <p className="mt-2 rounded-md border border-red-300 bg-red-50 px-3 py-2 text-base text-red-600 dark:border-red-900/60 dark:bg-red-950/40 dark:text-red-300">
+        <p className="mt-2 rounded-md border border-red-300 bg-red-50 px-1.5 py-2 text-base text-red-600 dark:border-red-900/60 dark:bg-red-950/40 dark:text-red-300">
           同步出错：{ledger.last_error}
         </p>
       )}

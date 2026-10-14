@@ -77,6 +77,27 @@ pub struct TrendPoint {
     pub cache: i64,
 }
 
+/// 一分钟速率桶：RPM = requests（每分钟请求/记录数），TPM = tokens（每分钟
+/// token 吞吐，输入+输出+缓存读+缓存写合计）。完整分钟轴缺口补零。
+#[derive(Debug, Clone, Serialize)]
+pub struct RatePoint {
+    /// 分钟桶起点（毫秒时间戳，绝对纪元对齐）
+    pub minute_start_ms: i64,
+    pub requests: i64,
+    pub tokens: i64,
+}
+
+/// 输出速度统计（tok/s，加权均速 = Σoutput/Σduration，只统计带耗时的记录）。
+#[derive(Debug, Clone, Serialize)]
+pub struct SpeedStats {
+    /// 最近一次带耗时记录的瞬时速度
+    pub latest_speed: Option<f64>,
+    /// 近 1 小时加权均速
+    pub hour_avg_speed: Option<f64>,
+    /// 今日（本地时区）加权均速
+    pub today_avg_speed: Option<f64>,
+}
+
 /// 账本同步状态（内存快照 + 实时总数），供「账本同步」展示。
 #[derive(Debug, Clone, Default, Serialize)]
 pub struct LedgerStatus {

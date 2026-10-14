@@ -4,11 +4,52 @@
 
 use crate::database::{dao, Database};
 use crate::models::{
-    HeatmapDay, ModelUsage, PeriodUsage, StatsSummary, TrendPoint,
+    HeatmapDay, ModelUsage, PeriodUsage, RatePoint, SpeedStats, StatsSummary, TrendPoint,
 };
 
 pub const HEATMAP_DEFAULT_DAYS: u32 = 365;
 pub const TREND_DEFAULT_DAYS: u32 = 30;
+pub const RATE_DEFAULT_MINUTES: u32 = 60;
+
+fn to_rate_points(rows: Vec<dao::MinuteRateRow>) -> Vec<RatePoint> {
+    rows.into_iter()
+        .map(|(minute_start_ms, requests, tokens)| RatePoint {
+            minute_start_ms,
+            requests,
+            tokens,
+        })
+        .collect()
+}
+
+/// 输出速度统计的公共装配（四个数据源共用）：当前瞬时速度 + 近 1 小时 / 今日加权均速。
+/// 加权均速 = Σoutput/Σduration（只统计带耗时的记录），无数据为 None。
+fn speed_stats(
+    db: &Database,
+    latest_fn: fn(&rusqlite::Connection) -> Result<Option<(i64, i64)>, String>,
+    avg_fn: fn(&rusqlite::Connection, i64) -> Result<(i64, i64), String>,
+) -> Result<SpeedStats, String> {
+    db.with_conn(|conn| {
+        let (today_start, _, _) = dao::local_period_bounds(conn)?;
+        let now_ms: i64 = conn
+            .query_row("SELECT CAST(strftime('%s','now') AS INTEGER) * 1000", [], |r| {
+                r.get(0)
+            })
+            .map_err(|e| format!("读取当前时间失败: {e}"))?;
+        let to_speed = |agg: (i64, i64)| {
+            let (out, dur) = agg;
+            if dur > 0 {
+                Some(out as f64 / dur as f64 * 1000.0)
+            } else {
+                None
+            }
+        };
+        Ok(SpeedStats {
+            latest_speed: latest_fn(conn)?.and_then(|agg| to_speed(agg)),
+            hour_avg_speed: to_speed(avg_fn(conn, now_ms - 3_600_000)?),
+            today_avg_speed: to_speed(avg_fn(conn, today_start)?),
+        })
+    })
+}
 
 fn to_period(sums: dao::UsageSums) -> PeriodUsage {
     PeriodUsage {
@@ -82,6 +123,17 @@ pub fn get_trend(db: &Database, days: Option<u32>) -> Result<Vec<TrendPoint>, St
     })
 }
 
+/// 速率：近 minutes 分钟按分钟桶的 RPM/TPM 序列（默认 60 分钟，缺口补零）。
+pub fn get_rates(db: &Database, minutes: Option<u32>) -> Result<Vec<RatePoint>, String> {
+    let minutes = minutes.unwrap_or(RATE_DEFAULT_MINUTES);
+    db.with_conn(|conn| Ok(to_rate_points(dao::minute_rates(conn, minutes)?)))
+}
+
+/// 输出速度：当前瞬时速度 + 近 1 小时 / 今日加权均速（tok/s）。
+pub fn get_speed(db: &Database) -> Result<SpeedStats, String> {
+    speed_stats(db, dao::latest_speed, dao::speed_avg)
+}
+
 // ---------- Codex 侧聚合（数据源 codex_events，结构与 kimi 侧一致） ----------
 
 /// Codex 今日 / 本周（周一起）/ 本月 / 总计 + 按模型分组（总计与三个周期）。
@@ -133,6 +185,17 @@ pub fn get_codex_trend(db: &Database, days: Option<u32>) -> Result<Vec<TrendPoin
             })
             .collect())
     })
+}
+
+/// Codex 速率：近 minutes 分钟按分钟桶的 RPM/TPM 序列（默认 60 分钟，缺口补零）。
+pub fn get_codex_rates(db: &Database, minutes: Option<u32>) -> Result<Vec<RatePoint>, String> {
+    let minutes = minutes.unwrap_or(RATE_DEFAULT_MINUTES);
+    db.with_conn(|conn| Ok(to_rate_points(dao::codex_minute_rates(conn, minutes)?)))
+}
+
+/// Codex 输出速度：当前瞬时速度 + 近 1 小时 / 今日加权均速（tok/s）。
+pub fn get_codex_speed(db: &Database) -> Result<SpeedStats, String> {
+    speed_stats(db, dao::codex_latest_speed, dao::codex_speed_avg)
 }
 
 // ---------- Windows Kimi Code 桌面端聚合（数据源 win_kimi_events，结构与 codex 侧一致） ----------
@@ -188,6 +251,17 @@ pub fn get_win_kimi_trend(db: &Database, days: Option<u32>) -> Result<Vec<TrendP
     })
 }
 
+/// Win Kimi 速率：近 minutes 分钟按分钟桶的 RPM/TPM 序列（默认 60 分钟，缺口补零）。
+pub fn get_win_kimi_rates(db: &Database, minutes: Option<u32>) -> Result<Vec<RatePoint>, String> {
+    let minutes = minutes.unwrap_or(RATE_DEFAULT_MINUTES);
+    db.with_conn(|conn| Ok(to_rate_points(dao::win_kimi_minute_rates(conn, minutes)?)))
+}
+
+/// Win Kimi 输出速度：当前瞬时速度 + 近 1 小时 / 今日加权均速（tok/s）。
+pub fn get_win_kimi_speed(db: &Database) -> Result<SpeedStats, String> {
+    speed_stats(db, dao::win_kimi_latest_speed, dao::win_kimi_speed_avg)
+}
+
 // ---------- WSL 侧 Codex 聚合（数据源 wsl_codex_events，结构与 codex 侧一致） ----------
 
 /// WSL Codex 今日 / 本周（周一起）/ 本月 / 总计 + 按模型分组（总计与三个周期）。
@@ -239,4 +313,15 @@ pub fn get_wsl_codex_trend(db: &Database, days: Option<u32>) -> Result<Vec<Trend
             })
             .collect())
     })
+}
+
+/// WSL Codex 速率：近 minutes 分钟按分钟桶的 RPM/TPM 序列（默认 60 分钟，缺口补零）。
+pub fn get_wsl_codex_rates(db: &Database, minutes: Option<u32>) -> Result<Vec<RatePoint>, String> {
+    let minutes = minutes.unwrap_or(RATE_DEFAULT_MINUTES);
+    db.with_conn(|conn| Ok(to_rate_points(dao::wsl_codex_minute_rates(conn, minutes)?)))
+}
+
+/// WSL Codex 输出速度：当前瞬时速度 + 近 1 小时 / 今日加权均速（tok/s）。
+pub fn get_wsl_codex_speed(db: &Database) -> Result<SpeedStats, String> {
+    speed_stats(db, dao::wsl_codex_latest_speed, dao::wsl_codex_speed_avg)
 }

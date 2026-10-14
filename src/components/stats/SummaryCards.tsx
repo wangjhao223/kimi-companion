@@ -10,13 +10,13 @@ function usageTotal(p: PeriodUsage): number {
 function SummaryCard({ label, usage }: { label: string; usage?: PeriodUsage }) {
   const { unit } = useUnit();
   return (
-    <div className="rounded-xl border border-zinc-200 bg-white p-3.5 shadow-[inset_0_1px_0_rgba(255,255,255,0.03)] dark:border-zinc-800/60 dark:bg-zinc-900/50">
+    <div className="min-w-0 rounded-xl border border-zinc-200 bg-white px-1.5 py-2.5 shadow-[inset_0_1px_0_rgba(255,255,255,0.03)] dark:border-zinc-800/60 dark:bg-zinc-900/50">
       <p className="text-base text-zinc-500">{label}</p>
       <p className="mt-0.5 font-mono text-xl font-semibold text-zinc-900 dark:text-zinc-100">
         {usage ? formatTokens(usageTotal(usage), unit) : "—"}
       </p>
       {usage && (
-        <div className="mt-1.5 space-y-0 text-sm text-zinc-500">
+        <div className="mt-1 space-y-0 text-sm text-zinc-500">
           <p>
             输入 <span className="text-zinc-700 dark:text-zinc-300">{formatTokens(usage.input, unit)}</span>
             {" · "}输出{" "}
@@ -43,7 +43,7 @@ function SummaryCard({ label, usage }: { label: string; usage?: PeriodUsage }) {
 /** 四张汇总卡（今日/本周/本月/总计），2×2 网格，撑满外层网格单元。 */
 export default function SummaryCards({ summary }: { summary?: StatsSummary }) {
   return (
-    <div className="grid h-full grid-cols-2 grid-rows-2 gap-2.5">
+    <div className="grid h-full grid-cols-2 grid-rows-2 gap-x-1 gap-y-2.5">
       <SummaryCard label="今日" usage={summary?.today} />
       <SummaryCard label="本周" usage={summary?.this_week} />
       <SummaryCard label="本月" usage={summary?.this_month} />

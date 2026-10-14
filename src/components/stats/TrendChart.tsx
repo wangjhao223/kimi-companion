@@ -46,8 +46,8 @@ export default function TrendChart({ source }: { source: AgentSource }) {
   const data = trendQuery.data ?? [];
 
   return (
-    <section className="h-full rounded-xl border border-zinc-200 bg-white p-3.5 shadow-[inset_0_1px_0_rgba(255,255,255,0.03)] dark:border-zinc-800/60 dark:bg-zinc-900/50">
-      <div className="mb-2 flex items-center justify-between">
+    <section className="min-w-0 h-full rounded-xl border border-zinc-200 bg-white px-1.5 py-2.5 shadow-[inset_0_1px_0_rgba(255,255,255,0.03)] dark:border-zinc-800/60 dark:bg-zinc-900/50">
+      <div className="mb-1.5 flex items-center justify-between">
         <p className="text-base text-zinc-500 dark:text-zinc-400">近 30 天趋势</p>
         <div className="flex gap-4 text-sm text-zinc-500">
           <span className="flex items-center gap-1.5">
@@ -62,9 +62,9 @@ export default function TrendChart({ source }: { source: AgentSource }) {
         </div>
       </div>
       {trendQuery.isLoading ? (
-        <p className="py-12 text-center text-base text-zinc-400 dark:text-zinc-600">加载中…</p>
+        <p className="py-8 text-center text-base text-zinc-400 dark:text-zinc-600">加载中…</p>
       ) : (
-        <div className="h-40">
+        <div className="h-32">
           <ResponsiveContainer width="100%" height="100%">
             <LineChart data={data} margin={{ top: 4, right: 8, bottom: 0, left: 0 }}>
               <CartesianGrid stroke={ui.grid} strokeDasharray="3 3" vertical={false} />

@@ -6,6 +6,8 @@ import type {
   HeatmapDay,
   LaunchStatus,
   LedgerStatus,
+  RatePoint,
+  SpeedStats,
   StatsSummary,
   TrendPoint,
   UpdateCheckResult,
@@ -67,6 +69,16 @@ export function getStatsTrend(days?: number): Promise<TrendPoint[]> {
   return invoke<TrendPoint[]>("get_stats_trend", { days: days ?? null });
 }
 
+/** 速率：近 minutes 分钟的 RPM/TPM 分钟序列（默认 60 分钟，缺口补零）。 */
+export function getStatsRates(minutes?: number): Promise<RatePoint[]> {
+  return invoke<RatePoint[]>("get_stats_rates", { minutes: minutes ?? null });
+}
+
+/** 输出速度：当前瞬时速度 + 近 1 小时 / 今日加权均速（tok/s）。 */
+export function getStatsSpeed(): Promise<SpeedStats> {
+  return invoke<SpeedStats>("get_stats_speed");
+}
+
 // ---------- Codex 侧（Windows 本地 rollout 导入的统计） ----------
 
 export function getCodexSummary(): Promise<StatsSummary> {
@@ -79,6 +91,14 @@ export function getCodexHeatmap(days?: number): Promise<HeatmapDay[]> {
 
 export function getCodexTrend(days?: number): Promise<TrendPoint[]> {
   return invoke<TrendPoint[]>("get_codex_trend", { days: days ?? null });
+}
+
+export function getCodexRates(minutes?: number): Promise<RatePoint[]> {
+  return invoke<RatePoint[]>("get_codex_rates", { minutes: minutes ?? null });
+}
+
+export function getCodexSpeed(): Promise<SpeedStats> {
+  return invoke<SpeedStats>("get_codex_speed");
 }
 
 export function getCodexStatus(): Promise<CodexStatus> {
@@ -99,6 +119,14 @@ export function getWslCodexTrend(days?: number): Promise<TrendPoint[]> {
   return invoke<TrendPoint[]>("get_wsl_codex_trend", { days: days ?? null });
 }
 
+export function getWslCodexRates(minutes?: number): Promise<RatePoint[]> {
+  return invoke<RatePoint[]>("get_wsl_codex_rates", { minutes: minutes ?? null });
+}
+
+export function getWslCodexSpeed(): Promise<SpeedStats> {
+  return invoke<SpeedStats>("get_wsl_codex_speed");
+}
+
 export function getWslCodexStatus(): Promise<CodexStatus> {
   return invoke<CodexStatus>("get_wsl_codex_status");
 }
@@ -115,6 +143,14 @@ export function getWinKimiHeatmap(days?: number): Promise<HeatmapDay[]> {
 
 export function getWinKimiTrend(days?: number): Promise<TrendPoint[]> {
   return invoke<TrendPoint[]>("get_win_kimi_trend", { days: days ?? null });
+}
+
+export function getWinKimiRates(minutes?: number): Promise<RatePoint[]> {
+  return invoke<RatePoint[]>("get_win_kimi_rates", { minutes: minutes ?? null });
+}
+
+export function getWinKimiSpeed(): Promise<SpeedStats> {
+  return invoke<SpeedStats>("get_win_kimi_speed");
 }
 
 export function getWinKimiStatus(): Promise<WinKimiStatus> {
@@ -139,26 +175,36 @@ export const STATS_APIS: Record<
     summary: () => Promise<StatsSummary>;
     heatmap: (days?: number) => Promise<HeatmapDay[]>;
     trend: (days?: number) => Promise<TrendPoint[]>;
+    rates: (minutes?: number) => Promise<RatePoint[]>;
+    speed: () => Promise<SpeedStats>;
   }
 > = {
   kimi: {
     summary: getStatsSummary,
     heatmap: getStatsHeatmap,
     trend: getStatsTrend,
+    rates: getStatsRates,
+    speed: getStatsSpeed,
   },
   codex: {
     summary: getCodexSummary,
     heatmap: getCodexHeatmap,
     trend: getCodexTrend,
+    rates: getCodexRates,
+    speed: getCodexSpeed,
   },
   "wsl-codex": {
     summary: getWslCodexSummary,
     heatmap: getWslCodexHeatmap,
     trend: getWslCodexTrend,
+    rates: getWslCodexRates,
+    speed: getWslCodexSpeed,
   },
   "kimi-win": {
     summary: getWinKimiSummary,
     heatmap: getWinKimiHeatmap,
     trend: getWinKimiTrend,
+    rates: getWinKimiRates,
+    speed: getWinKimiSpeed,
   },
 };

@@ -71,7 +71,7 @@ export default function WinKimiPanel() {
     null;
 
   return (
-    <section className="flex h-full flex-col rounded-xl border border-zinc-200 bg-white p-3.5 shadow-[inset_0_1px_0_rgba(255,255,255,0.03)] dark:border-zinc-800/60 dark:bg-zinc-900/50">
+    <section className="min-w-0 flex h-full flex-col rounded-xl border border-zinc-200 bg-white px-1.5 py-2.5 shadow-[inset_0_1px_0_rgba(255,255,255,0.03)] dark:border-zinc-800/60 dark:bg-zinc-900/50">
       <p className="text-base text-zinc-500 dark:text-zinc-400">Kimi Code 桌面端</p>
       {app?.exe_path && (
         <p
@@ -82,7 +82,7 @@ export default function WinKimiPanel() {
         </p>
       )}
 
-      <div className="mt-2 divide-y divide-zinc-300 dark:divide-zinc-800">
+      <div className="mt-1.5 divide-y divide-zinc-300 dark:divide-zinc-800">
         <StatusRow label="已安装" ok={installed} />
         <StatusRow
           label="运行中"
@@ -92,9 +92,9 @@ export default function WinKimiPanel() {
       </div>
 
       {/* 记账同步状态（展示方式参照 CodexStatusCard） */}
-      <div className="mt-2.5">
+      <div className="mt-2">
         <p className="text-sm text-zinc-500">记账同步</p>
-        <div className="mt-1 space-y-1.5">
+        <div className="mt-0.5 space-y-1">
           <div>
             <p
               className="truncate font-mono text-base text-zinc-700 dark:text-zinc-300"
@@ -123,15 +123,15 @@ export default function WinKimiPanel() {
           </div>
         </div>
         {status?.dir_found && status.last_error && (
-          <p className="mt-2 rounded-md border border-red-300 bg-red-50 px-3 py-2 text-base text-red-600 dark:border-red-900/60 dark:bg-red-950/40 dark:text-red-300">
+          <p className="mt-2 rounded-md border border-red-300 bg-red-50 px-1.5 py-2 text-base text-red-600 dark:border-red-900/60 dark:bg-red-950/40 dark:text-red-300">
             同步出错:{status.last_error}
           </p>
         )}
       </div>
 
-      <div className="mt-auto pt-2.5">
+      <div className="mt-auto pt-2">
         <button
-          className="w-full rounded-lg bg-emerald-600 px-4 py-2 text-base font-medium text-white hover:bg-emerald-500 disabled:opacity-50"
+          className="w-full rounded-lg bg-emerald-600 px-2 py-1.5 text-base font-medium text-white hover:bg-emerald-500 disabled:opacity-50"
           onClick={() => startMutation.mutate()}
           disabled={startMutation.isPending || !installed}
           title={installed ? undefined : "未安装 Kimi Code 桌面端"}
@@ -144,7 +144,7 @@ export default function WinKimiPanel() {
           </p>
         )}
         {error && (
-          <p className="mt-2 rounded-md border border-red-300 bg-red-50 px-3 py-2 text-base text-red-600 dark:border-red-900/60 dark:bg-red-950/40 dark:text-red-300">
+          <p className="mt-2 rounded-md border border-red-300 bg-red-50 px-1.5 py-2 text-base text-red-600 dark:border-red-900/60 dark:bg-red-950/40 dark:text-red-300">
             {error}
           </p>
         )}

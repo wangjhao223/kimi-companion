@@ -13,6 +13,9 @@ pub struct UsageEventRow {
     pub output_tokens: i64,
     pub cache_read: i64,
     pub cache_creation: i64,
+    /// 生成耗时毫秒（kimi 侧 = llm.request→usage.record；codex 侧 = 回合墙钟）。
+    /// 采集端无法配对时为 None，历史行保持 NULL。
+    pub duration_ms: Option<i64>,
 }
 
 /// 批量写入账本记录，单事务 + INSERT OR IGNORE 幂等，返回实际插入条数。
@@ -28,8 +31,8 @@ pub fn insert_usage_events(conn: &mut Connection, rows: &[UsageEventRow]) -> Res
         let mut stmt = tx
             .prepare(
                 "INSERT OR IGNORE INTO usage_events
-                 (ts, session_id, agent, model, input_tokens, output_tokens, cache_read, cache_creation)
-                 VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)",
+                 (ts, session_id, agent, model, input_tokens, output_tokens, cache_read, cache_creation, duration_ms)
+                 VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9)",
             )
             .map_err(|e| format!("预编译插入语句失败: {e}"))?;
         for row in rows {
@@ -43,6 +46,7 @@ pub fn insert_usage_events(conn: &mut Connection, rows: &[UsageEventRow]) -> Res
                     row.output_tokens,
                     row.cache_read,
                     row.cache_creation,
+                    row.duration_ms,
                 ])
                 .map_err(|e| format!("写入 usage_events 失败: {e}"))?;
         }
@@ -209,6 +213,94 @@ pub fn trend_series(conn: &Connection, days: u32) -> Result<Vec<(String, i64, i6
         .map_err(|e| format!("读取趋势聚合结果失败: {e}"))
 }
 
+/// 一分钟速率桶：(桶起点 ms, 请求数, token 合计)。token 合计 = 输入+输出+缓存读+缓存写。
+pub type MinuteRateRow = (i64, i64, i64);
+
+/// 按分钟聚合指定事件表的速率序列：近 minutes 分钟（含当前分钟），完整分钟轴缺口补零。
+/// 桶界按绝对纪元毫秒对齐（ts/60000），与时区无关；表名为代码内部常量，无注入风险。
+fn minute_series_on(
+    conn: &Connection,
+    table: &str,
+    minutes: u32,
+) -> Result<Vec<MinuteRateRow>, String> {
+    let minutes = minutes.clamp(1, 24 * 60);
+    let now_ms: i64 = conn
+        .query_row("SELECT CAST(strftime('%s','now') AS INTEGER) * 1000", [], |r| {
+            r.get(0)
+        })
+        .map_err(|e| format!("读取当前时间失败: {e}"))?;
+    let cur_bucket = now_ms / 60000 * 60000;
+    let since = cur_bucket - (minutes as i64 - 1) * 60000;
+
+    let mut stmt = conn
+        .prepare(&format!(
+            "SELECT (ts/60000)*60000 b, COUNT(*), \
+             COALESCE(SUM(input_tokens+output_tokens+cache_read+cache_creation),0) \
+             FROM {table} WHERE ts >= ?1 GROUP BY b ORDER BY b"
+        ))
+        .map_err(|e| format!("预编译分钟聚合失败: {e}"))?;
+    let sparse: std::collections::HashMap<i64, (i64, i64)> = stmt
+        .query_map([since], |r| {
+            Ok((r.get::<_, i64>(0)?, (r.get::<_, i64>(1)?, r.get::<_, i64>(2)?)))
+        })
+        .map_err(|e| format!("分钟聚合查询失败: {e}"))?
+        .collect::<Result<_, _>>()
+        .map_err(|e| format!("读取分钟聚合结果失败: {e}"))?;
+
+    let mut out = Vec::with_capacity(minutes as usize);
+    for i in 0..minutes as i64 {
+        let b = since + i * 60000;
+        let (req, tok) = sparse.get(&b).copied().unwrap_or((0, 0));
+        out.push((b, req, tok));
+    }
+    Ok(out)
+}
+
+/// usage_events 分钟速率序列，近 minutes 分钟（含当前分钟），缺口补零。
+pub fn minute_rates(conn: &Connection, minutes: u32) -> Result<Vec<MinuteRateRow>, String> {
+    minute_series_on(conn, "usage_events", minutes)
+}
+
+/// 指定事件表在 since_ms 以来的速度聚合：(输出 token 合计, 生成耗时合计 ms)。
+/// 加权均速 tok/s = output/duration*1000，由调用方计算；只统计 duration_ms
+/// 非空的行（历史行与配对失败的行没有耗时，不参与速度计算）。
+fn speed_avg_on(conn: &Connection, table: &str, since_ms: i64) -> Result<(i64, i64), String> {
+    conn.query_row(
+        &format!(
+            "SELECT COALESCE(SUM(output_tokens),0), COALESCE(SUM(duration_ms),0) \
+             FROM {table} WHERE ts >= ?1 AND duration_ms IS NOT NULL"
+        ),
+        [since_ms],
+        |r| Ok((r.get(0)?, r.get(1)?)),
+    )
+    .map_err(|e| format!("速度聚合查询失败: {e}"))
+}
+
+/// 指定事件表最近一次带耗时的记录：(output_tokens, duration_ms)，供「当前速度」。
+fn latest_speed_on(conn: &Connection, table: &str) -> Result<Option<(i64, i64)>, String> {
+    conn.query_row(
+        &format!(
+            "SELECT output_tokens, duration_ms FROM {table} \
+             WHERE duration_ms IS NOT NULL AND duration_ms > 0 \
+             ORDER BY ts DESC LIMIT 1"
+        ),
+        [],
+        |r| Ok((r.get(0)?, r.get(1)?)),
+    )
+    .optional()
+    .map_err(|e| format!("查询最近速度记录失败: {e}"))
+}
+
+/// usage_events 在 since_ms 以来的速度聚合。
+pub fn speed_avg(conn: &Connection, since_ms: i64) -> Result<(i64, i64), String> {
+    speed_avg_on(conn, "usage_events", since_ms)
+}
+
+/// usage_events 最近一次带耗时的记录。
+pub fn latest_speed(conn: &Connection) -> Result<Option<(i64, i64)>, String> {
+    latest_speed_on(conn, "usage_events")
+}
+
 pub fn get_meta(conn: &Connection, key: &str) -> Result<Option<String>, String> {
     conn.query_row("SELECT value FROM meta WHERE key = ?1", [key], |r| r.get(0))
         .optional()
@@ -250,8 +342,8 @@ pub fn insert_codex_events(conn: &mut Connection, rows: &[UsageEventRow]) -> Res
         let mut stmt = tx
             .prepare(
                 "INSERT OR IGNORE INTO codex_events
-                 (ts, session_id, model, input_tokens, output_tokens, cache_read, cache_creation)
-                 VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)",
+                 (ts, session_id, model, input_tokens, output_tokens, cache_read, cache_creation, duration_ms)
+                 VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)",
             )
             .map_err(|e| format!("预编译插入语句失败: {e}"))?;
         for row in rows {
@@ -264,6 +356,7 @@ pub fn insert_codex_events(conn: &mut Connection, rows: &[UsageEventRow]) -> Res
                     row.output_tokens,
                     row.cache_read,
                     row.cache_creation,
+                    row.duration_ms,
                 ])
                 .map_err(|e| format!("写入 codex_events 失败: {e}"))?;
         }
@@ -366,6 +459,21 @@ pub fn codex_trend_series(conn: &Connection, days: u32) -> Result<Vec<(String, i
         .map_err(|e| format!("读取 codex 趋势聚合结果失败: {e}"))
 }
 
+/// codex_events 分钟速率序列，近 minutes 分钟（含当前分钟），缺口补零。
+pub fn codex_minute_rates(conn: &Connection, minutes: u32) -> Result<Vec<MinuteRateRow>, String> {
+    minute_series_on(conn, "codex_events", minutes)
+}
+
+/// codex_events 在 since_ms 以来的速度聚合。
+pub fn codex_speed_avg(conn: &Connection, since_ms: i64) -> Result<(i64, i64), String> {
+    speed_avg_on(conn, "codex_events", since_ms)
+}
+
+/// codex_events 最近一次带耗时的记录。
+pub fn codex_latest_speed(conn: &Connection) -> Result<Option<(i64, i64)>, String> {
+    latest_speed_on(conn, "codex_events")
+}
+
 // ---------- Windows Kimi Code 桌面端：win_kimi_events 的写入与聚合（与 codex_events 同构，无 agent 列） ----------
 
 /// 批量写入 win_kimi 用量记录，单事务 + INSERT OR IGNORE 幂等，返回实际插入条数。
@@ -382,8 +490,8 @@ pub fn insert_win_kimi_events(conn: &mut Connection, rows: &[UsageEventRow]) -> 
         let mut stmt = tx
             .prepare(
                 "INSERT OR IGNORE INTO win_kimi_events
-                 (ts, session_id, model, input_tokens, output_tokens, cache_read, cache_creation)
-                 VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)",
+                 (ts, session_id, model, input_tokens, output_tokens, cache_read, cache_creation, duration_ms)
+                 VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)",
             )
             .map_err(|e| format!("预编译插入语句失败: {e}"))?;
         for row in rows {
@@ -396,6 +504,7 @@ pub fn insert_win_kimi_events(conn: &mut Connection, rows: &[UsageEventRow]) -> 
                     row.output_tokens,
                     row.cache_read,
                     row.cache_creation,
+                    row.duration_ms,
                 ])
                 .map_err(|e| format!("写入 win_kimi_events 失败: {e}"))?;
         }
@@ -498,6 +607,21 @@ pub fn win_kimi_trend_series(conn: &Connection, days: u32) -> Result<Vec<(String
         .map_err(|e| format!("读取 win_kimi 趋势聚合结果失败: {e}"))
 }
 
+/// win_kimi_events 分钟速率序列，近 minutes 分钟（含当前分钟），缺口补零。
+pub fn win_kimi_minute_rates(conn: &Connection, minutes: u32) -> Result<Vec<MinuteRateRow>, String> {
+    minute_series_on(conn, "win_kimi_events", minutes)
+}
+
+/// win_kimi_events 在 since_ms 以来的速度聚合。
+pub fn win_kimi_speed_avg(conn: &Connection, since_ms: i64) -> Result<(i64, i64), String> {
+    speed_avg_on(conn, "win_kimi_events", since_ms)
+}
+
+/// win_kimi_events 最近一次带耗时的记录。
+pub fn win_kimi_latest_speed(conn: &Connection) -> Result<Option<(i64, i64)>, String> {
+    latest_speed_on(conn, "win_kimi_events")
+}
+
 // ---------- WSL 侧 Codex：wsl_codex_events 的写入与聚合（与 codex_events 同构，无 agent 列） ----------
 
 /// 批量写入 wsl_codex 用量记录，单事务 + INSERT OR IGNORE 幂等，返回实际插入条数。
@@ -514,8 +638,8 @@ pub fn insert_wsl_codex_events(conn: &mut Connection, rows: &[UsageEventRow]) ->
         let mut stmt = tx
             .prepare(
                 "INSERT OR IGNORE INTO wsl_codex_events
-                 (ts, session_id, model, input_tokens, output_tokens, cache_read, cache_creation)
-                 VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)",
+                 (ts, session_id, model, input_tokens, output_tokens, cache_read, cache_creation, duration_ms)
+                 VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)",
             )
             .map_err(|e| format!("预编译插入语句失败: {e}"))?;
         for row in rows {
@@ -528,6 +652,7 @@ pub fn insert_wsl_codex_events(conn: &mut Connection, rows: &[UsageEventRow]) ->
                     row.output_tokens,
                     row.cache_read,
                     row.cache_creation,
+                    row.duration_ms,
                 ])
                 .map_err(|e| format!("写入 wsl_codex_events 失败: {e}"))?;
         }
@@ -628,4 +753,19 @@ pub fn wsl_codex_trend_series(conn: &Connection, days: u32) -> Result<Vec<(Strin
         .map_err(|e| format!("wsl_codex 趋势聚合查询失败: {e}"))?;
     rows.collect::<Result<Vec<(String, i64, i64, i64)>, _>>()
         .map_err(|e| format!("读取 wsl_codex 趋势聚合结果失败: {e}"))
+}
+
+/// wsl_codex_events 分钟速率序列，近 minutes 分钟（含当前分钟），缺口补零。
+pub fn wsl_codex_minute_rates(conn: &Connection, minutes: u32) -> Result<Vec<MinuteRateRow>, String> {
+    minute_series_on(conn, "wsl_codex_events", minutes)
+}
+
+/// wsl_codex_events 在 since_ms 以来的速度聚合。
+pub fn wsl_codex_speed_avg(conn: &Connection, since_ms: i64) -> Result<(i64, i64), String> {
+    speed_avg_on(conn, "wsl_codex_events", since_ms)
+}
+
+/// wsl_codex_events 最近一次带耗时的记录。
+pub fn wsl_codex_latest_speed(conn: &Connection) -> Result<Option<(i64, i64)>, String> {
+    latest_speed_on(conn, "wsl_codex_events")
 }

@@ -341,6 +341,11 @@ fn sync_file(db: &Database, path: &Path, source: &Source) -> Result<usize, Strin
         .map(|s| s.to_string_lossy().into_owned())
         .unwrap_or_default();
     let mut rows: Vec<dao::UsageEventRow> = Vec::new();
+    // 最近一个 turn_context 的时间戳（回合开始）。token_count 与之配对得到
+    // 回合端到端耗时（墙钟，含工具执行；增量读取时回合起点可能已在已消费
+    // 字节里，此时 duration 落 None）。rollout 没有逐次 API 调用的时间戳，
+    // 这是 codex 侧能拿到的最细粒度。
+    let mut last_turn_ts: Option<i64> = None;
     for line in text.lines() {
         if has_type(line, "session_meta") {
             if let Some(m) = parse_meta_line(line) {
@@ -356,8 +361,11 @@ fn sync_file(db: &Database, path: &Path, source: &Source) -> Result<usize, Strin
             if let Some(model) = parse_turn_model(line) {
                 meta.model = model;
             }
+            if let Some(ts) = parse_line_ts(line) {
+                last_turn_ts = Some(ts);
+            }
         } else if has_type(line, "token_count") {
-            if let Some(row) = parse_token_line(line, &meta, &fallback_id) {
+            if let Some(row) = parse_token_line(line, &meta, &fallback_id, last_turn_ts) {
                 rows.push(row);
             }
         }
@@ -430,7 +438,13 @@ fn parse_turn_model(line: &str) -> Option<String> {
 /// - cache_read     = cached_input_tokens
 /// - cache_creation = cache_write_input_tokens
 /// - output         = output_tokens（含 reasoning）
-fn parse_token_line(line: &str, meta: &FileMeta, fallback_id: &str) -> Option<dao::UsageEventRow> {
+/// - duration_ms    = 本行 timestamp 与本回合 turn_context timestamp 之差（回合墙钟）
+fn parse_token_line(
+    line: &str,
+    meta: &FileMeta,
+    fallback_id: &str,
+    turn_start_ms: Option<i64>,
+) -> Option<dao::UsageEventRow> {
     let v: serde_json::Value = serde_json::from_str(line).ok()?;
     if v.get("type")?.as_str()? != "event_msg" {
         return None;
@@ -443,6 +457,14 @@ fn parse_token_line(line: &str, meta: &FileMeta, fallback_id: &str) -> Option<da
     let u = payload.get("info")?.get("last_token_usage")?;
     let n = |k: &str| u.get(k).and_then(|x| x.as_i64()).unwrap_or(0);
     let cached = n("cached_input_tokens");
+    let duration_ms = turn_start_ms.and_then(|t0| {
+        let d = ts - t0;
+        if d >= 0 {
+            Some(d)
+        } else {
+            None
+        }
+    });
     Some(dao::UsageEventRow {
         ts,
         session_id: if meta.session_id.is_empty() {
@@ -456,7 +478,14 @@ fn parse_token_line(line: &str, meta: &FileMeta, fallback_id: &str) -> Option<da
         output_tokens: n("output_tokens"),
         cache_read: cached,
         cache_creation: n("cache_write_input_tokens"),
+        duration_ms,
     })
+}
+
+/// 解析 rollout 行的顶层 timestamp（任何行类型通用），供 turn_context 取回合起点。
+fn parse_line_ts(line: &str) -> Option<i64> {
+    let v: serde_json::Value = serde_json::from_str(line).ok()?;
+    rfc3339_utc_to_ms(v.get("timestamp")?.as_str()?)
 }
 
 /// 解析 rollout 行时间戳（固定 `YYYY-MM-DDTHH:MM:SS[.frac]Z`，UTC）为毫秒时间戳。

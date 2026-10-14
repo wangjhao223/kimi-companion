@@ -98,12 +98,12 @@ export default function UpdateCard() {
   const output = update?.output ?? check?.output ?? "";
 
   return (
-    <section className="h-full rounded-xl border border-zinc-200 bg-white p-3.5 shadow-[inset_0_1px_0_rgba(255,255,255,0.03)] dark:border-zinc-800/60 dark:bg-zinc-900/50">
+    <section className="min-w-0 h-full rounded-xl border border-zinc-200 bg-white px-1.5 py-2.5 shadow-[inset_0_1px_0_rgba(255,255,255,0.03)] dark:border-zinc-800/60 dark:bg-zinc-900/50">
       <div className="flex items-center justify-between">
         <p className="text-base text-zinc-500 dark:text-zinc-400">Kimi Code 更新</p>
         <StatusDot tone={dotTone} busy={dotBusy} />
       </div>
-      <p className="mt-1.5 text-base text-zinc-500">
+      <p className="mt-1 text-base text-zinc-500">
         当前版本{" "}
         <span className="font-mono text-zinc-900 dark:text-zinc-100">
           {!distro
@@ -171,14 +171,14 @@ export default function UpdateCard() {
         ) : null}
       </div>
 
-      <div className="mt-2 flex gap-2">
+      <div className="mt-1.5 flex gap-2">
         {distro &&
           !update &&
           !updateMutation.isError &&
           check &&
           !check.up_to_date && (
             <button
-              className="flex-1 rounded-lg bg-emerald-600 px-3 py-1.5 text-base font-medium text-white hover:bg-emerald-500 disabled:opacity-50"
+              className="flex-1 rounded-lg bg-emerald-600 px-1.5 py-1.5 text-base font-medium text-white hover:bg-emerald-500 disabled:opacity-50"
               onClick={() => updateMutation.mutate(distro)}
               disabled={updating}
             >
@@ -194,7 +194,7 @@ export default function UpdateCard() {
           )}
         {checkQuery.isError && !update && !updateMutation.isError && (
           <button
-            className="flex-1 rounded-lg border border-zinc-300 px-3 py-1.5 text-base hover:bg-zinc-200 disabled:opacity-50 dark:border-zinc-700 dark:hover:bg-zinc-800"
+            className="flex-1 rounded-lg border border-zinc-300 px-1.5 py-1.5 text-base hover:bg-zinc-200 disabled:opacity-50 dark:border-zinc-700 dark:hover:bg-zinc-800"
             onClick={() => checkQuery.refetch()}
             disabled={checkQuery.isFetching}
           >
@@ -203,7 +203,7 @@ export default function UpdateCard() {
         )}
         {!updating && (updateMutation.isError || (update && !update.success)) && (
           <button
-            className="flex-1 rounded-lg border border-zinc-300 px-3 py-1.5 text-base hover:bg-zinc-200 dark:border-zinc-700 dark:hover:bg-zinc-800"
+            className="flex-1 rounded-lg border border-zinc-300 px-1.5 py-1.5 text-base hover:bg-zinc-200 dark:border-zinc-700 dark:hover:bg-zinc-800"
             onClick={() => updateMutation.mutate(distro!)}
           >
             重试更新
@@ -211,7 +211,7 @@ export default function UpdateCard() {
         )}
         {update?.success && (
           <button
-            className="flex-1 rounded-lg border border-zinc-300 px-3 py-1.5 text-base hover:bg-zinc-200 dark:border-zinc-700 dark:hover:bg-zinc-800"
+            className="flex-1 rounded-lg border border-zinc-300 px-1.5 py-1.5 text-base hover:bg-zinc-200 dark:border-zinc-700 dark:hover:bg-zinc-800"
             onClick={() => updateMutation.reset()}
           >
             重新检查
@@ -220,7 +220,7 @@ export default function UpdateCard() {
       </div>
 
       {output.trim() !== "" && (
-        <details className="mt-2">
+        <details className="mt-1.5">
           <summary className="cursor-pointer select-none text-sm text-zinc-400 hover:text-zinc-500 dark:text-zinc-600 dark:hover:text-zinc-400">
             CLI 原始输出
           </summary>

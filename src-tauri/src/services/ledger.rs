@@ -172,6 +172,8 @@ fn parse_line(line: &str) -> Option<dao::UsageEventRow> {
         output_tokens: n("output"),
         cache_read: n("cache_read"),
         cache_creation: n("cache_creation"),
+        // 旧版账本行没有 duration_ms 字段，落 NULL（不参与速度计算）
+        duration_ms: v.get("duration_ms").and_then(|x| x.as_i64()),
     })
 }
 

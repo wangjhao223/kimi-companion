@@ -54,6 +54,24 @@ export interface TrendPoint {
   cache: number;
 }
 
+/** 一分钟速率桶：RPM = requests，TPM = tokens（输入+输出+缓存读+缓存写合计）。 */
+export interface RatePoint {
+  /** 分钟桶起点（毫秒时间戳） */
+  minute_start_ms: number;
+  requests: number;
+  tokens: number;
+}
+
+/** 输出速度统计（tok/s，加权均速 = Σoutput/Σduration，只统计带耗时的记录）。 */
+export interface SpeedStats {
+  /** 最近一次带耗时记录的瞬时速度 */
+  latest_speed: number | null;
+  /** 近 1 小时加权均速 */
+  hour_avg_speed: number | null;
+  /** 今日（本地时区）加权均速 */
+  today_avg_speed: number | null;
+}
+
 /** kimi CLI 更新检查结果（check_kimi_cli_update）。 */
 export interface UpdateCheckResult {
   current_version: string;

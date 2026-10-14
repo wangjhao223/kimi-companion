@@ -11,3 +11,17 @@ export function formatTokens(n: number, unit: Unit): string {
 function trim(v: number, digits: number): string {
   return v.toFixed(digits).replace(/\.?0+$/, "");
 }
+
+/** 缩写时要剥掉的供应商前缀。 */
+const VENDOR_PREFIXES = new Set(["kimi", "claude", "deepseek", "qwen", "glm", "gemini", "moonshot", "openai"]);
+
+/** 模型名缩写：去掉供应商前缀、日期段（4/8 位纯数字）和 preview/latest 等修饰词，例 "kimi-k2-0905-preview" → "k2"、"gpt-5" → "gpt-5"。 */
+export function abbrevModel(name: string): string {
+  const stop = new Set(["preview", "latest", "exp", "beta", "alpha", "instruct"]);
+  const parts = name.split("-").filter((p) => {
+    if (/^\d{4}$/.test(p) || /^\d{8}$/.test(p)) return false;
+    return !stop.has(p.toLowerCase());
+  });
+  if (parts.length > 1 && VENDOR_PREFIXES.has(parts[0].toLowerCase())) parts.shift();
+  return parts.length > 0 ? parts.join("-") : name;
+}

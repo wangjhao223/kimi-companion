@@ -85,7 +85,21 @@ def process_wire(path, state, out):
     state[path] = offset + len(complete)
 
     count = 0
+    # 本次消费的字节内按 agentId 追踪最近的 llm.request 时刻，给 usage.record
+    # 配出生成耗时（duration_ms）。配对跨不出本次 chunk：若请求行落在更早的
+    # 已消费字节里（如 Interrupt 把一轮切进两次 hook 运行），duration 落 null。
+    last_request = {}
     for line in complete.splitlines():
+        if b'"llm.request"' in line:
+            try:
+                event = json.loads(line)
+            except ValueError:
+                continue
+            if event.get("type") == "llm.request":
+                t = event.get("time")
+                if isinstance(t, (int, float)):
+                    last_request[event.get("agentId") or agent_dir or ""] = t
+            continue
         if b'"usage.record"' not in line:
             continue
         try:
@@ -95,6 +109,13 @@ def process_wire(path, state, out):
         if event.get("type") != "usage.record":
             continue
         usage = event.get("usage") or {}
+        rec_ts = event.get("time")
+        req_ts = last_request.get(event.get("agentId") or agent_dir or "")
+        duration = None
+        if isinstance(rec_ts, (int, float)) and isinstance(req_ts, (int, float)):
+            d = int(rec_ts - req_ts)
+            if d >= 0:
+                duration = d
         record = {
             "ts": event.get("time"),
             "session_id": event.get("sessionId") or session_id,
@@ -104,6 +125,7 @@ def process_wire(path, state, out):
             "output": usage.get("output", 0),
             "cache_read": usage.get("inputCacheRead", 0),
             "cache_creation": usage.get("inputCacheCreation", 0),
+            "duration_ms": duration,
         }
         out.write(json.dumps(record, ensure_ascii=False) + "\n")
         count += 1

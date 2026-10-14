@@ -26,12 +26,12 @@ export default function CostSummaryCard({ summary }: { summary?: StatsSummary })
   ];
 
   return (
-    <section className="h-full rounded-xl border border-zinc-200 bg-white p-3.5 shadow-[inset_0_1px_0_rgba(255,255,255,0.03)] dark:border-zinc-800/60 dark:bg-zinc-900/50">
-      <p className="text-base text-zinc-500">费用估算（全部时间）</p>
+    <section className="min-w-0 h-full rounded-xl border border-zinc-200 bg-white px-1.5 py-2.5 shadow-[inset_0_1px_0_rgba(255,255,255,0.03)] dark:border-zinc-800/60 dark:bg-zinc-900/50">
+      <p className="text-base text-zinc-500">费用估算</p>
       <p className="mt-0.5 font-mono text-xl font-semibold text-emerald-600 dark:text-emerald-300">
         {models.length === 0 ? "—" : formatCost(costOf(summary?.by_model))}
       </p>
-      <div className="mt-2 space-y-1 border-t border-zinc-200 pt-2 dark:border-zinc-800/60">
+      <div className="mt-1.5 space-y-0.5 border-t border-zinc-200 pt-1.5 dark:border-zinc-800/60">
         {periods.map((p) => (
           <div
             key={p.label}
@@ -44,9 +44,6 @@ export default function CostSummaryCard({ summary }: { summary?: StatsSummary })
           </div>
         ))}
       </div>
-      <p className="mt-1.5 text-sm text-zinc-500">
-        按本地单价表估算，单价在下方费用模块填写
-      </p>
     </section>
   );
 }

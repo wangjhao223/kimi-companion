@@ -52,11 +52,11 @@ function Shell() {
     <div className="flex min-h-screen flex-col">
       <TitleBar />
       <nav className="sticky top-0 z-10 border-b border-zinc-200 bg-white/80 backdrop-blur dark:border-zinc-800/60 dark:bg-zinc-950/80">
-        <div className="mx-auto flex max-w-5xl items-center gap-1 px-5 py-1.5">
+        <div className="mx-auto flex max-w-5xl items-center gap-1 px-2 py-1.5">
           {TABS.map((t) => (
             <button
               key={t.key}
-              className={`rounded-md px-3 py-1 text-[13px] font-medium transition-colors ${
+              className={`rounded-md px-1.5 py-1 text-[13px] font-medium transition-colors ${
                 tab === t.key
                   ? "bg-zinc-200 text-emerald-600 dark:bg-zinc-800 dark:text-emerald-300"
                   : "text-zinc-500 hover:bg-zinc-100 hover:text-zinc-800 dark:text-zinc-400 dark:hover:bg-zinc-900 dark:hover:text-zinc-200"
@@ -72,7 +72,7 @@ function Shell() {
               {THEME_OPTIONS.map((t) => (
                 <button
                   key={t.key}
-                  className={`rounded px-2 py-0.5 text-xs transition-colors ${
+                  className={`rounded px-1.5 py-0.5 text-xs transition-colors ${
                     mode === t.key
                       ? "bg-emerald-600 text-white"
                       : "text-zinc-500 hover:text-zinc-800 dark:text-zinc-400 dark:hover:text-zinc-200"
@@ -88,7 +88,7 @@ function Shell() {
               {UNITS.map((u) => (
                 <button
                   key={u}
-                  className={`rounded px-2 py-0.5 text-xs font-mono transition-colors ${
+                  className={`rounded px-1.5 py-0.5 text-xs font-mono transition-colors ${
                     unit === u
                       ? "bg-emerald-600 text-white"
                       : "text-zinc-500 hover:text-zinc-800 dark:text-zinc-400 dark:hover:text-zinc-200"

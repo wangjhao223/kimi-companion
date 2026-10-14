@@ -160,11 +160,29 @@ fn sync_file(db: &Database, path: &Path) -> Result<usize, String> {
         .map(|s| s.to_string_lossy().into_owned())
         .unwrap_or_default();
     let mut rows: Vec<dao::UsageEventRow> = Vec::new();
+    // 本次消费的字节内按 agentId 追踪最近的 llm.request 时刻，给 usage.record
+    // 配出生成耗时（与 companion-hook.py 同规则；配对跨不出本次 chunk）。
+    let mut last_request: std::collections::HashMap<String, i64> = Default::default();
     for line in text.lines() {
+        if has_type(line, "llm.request") {
+            if let Ok(v) = serde_json::from_str::<serde_json::Value>(line) {
+                if v.get("type").and_then(|t| t.as_str()) == Some("llm.request") {
+                    if let Some(t) = v.get("time").and_then(|x| x.as_i64()) {
+                        let agent = v
+                            .get("agentId")
+                            .and_then(|x| x.as_str())
+                            .unwrap_or("")
+                            .to_string();
+                        last_request.insert(agent, t);
+                    }
+                }
+            }
+            continue;
+        }
         if !has_type(line, "usage.record") {
             continue;
         }
-        if let Some(row) = parse_usage_line(line, &fallback_id) {
+        if let Some(row) = parse_usage_line(line, &fallback_id, &last_request) {
             rows.push(row);
         }
     }
@@ -182,7 +200,12 @@ fn has_type(line: &str, t: &str) -> bool {
 }
 
 /// 宽松解析 usage.record 行（与 companion-hook.py 同规则）：缺 ts 或 usage 体则跳过。
-fn parse_usage_line(line: &str, fallback_id: &str) -> Option<dao::UsageEventRow> {
+/// duration_ms = 本行 time 与同 agentId 最近 llm.request 时刻之差，配对失败为 None。
+fn parse_usage_line(
+    line: &str,
+    fallback_id: &str,
+    last_request: &std::collections::HashMap<String, i64>,
+) -> Option<dao::UsageEventRow> {
     let v: serde_json::Value = serde_json::from_str(line).ok()?;
     if v.get("type")?.as_str()? != "usage.record" {
         return None;
@@ -195,6 +218,15 @@ fn parse_usage_line(line: &str, fallback_id: &str) -> Option<dao::UsageEventRow>
         .and_then(|x| x.as_str())
         .filter(|s| !s.is_empty())
         .unwrap_or(fallback_id);
+    let agent_id = v.get("agentId").and_then(|x| x.as_str()).unwrap_or("");
+    let duration_ms = last_request.get(agent_id).and_then(|req| {
+        let d = ts - req;
+        if d >= 0 {
+            Some(d)
+        } else {
+            None
+        }
+    });
     Some(dao::UsageEventRow {
         ts,
         session_id: session_id.to_string(),
@@ -208,6 +240,7 @@ fn parse_usage_line(line: &str, fallback_id: &str) -> Option<dao::UsageEventRow>
         output_tokens: n("output"),
         cache_read: n("inputCacheRead"),
         cache_creation: n("inputCacheCreation"),
+        duration_ms,
     })
 }
 

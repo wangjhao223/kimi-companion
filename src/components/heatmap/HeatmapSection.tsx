@@ -1,4 +1,4 @@
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { STATS_APIS } from "../../lib/api";
 import { formatTokens } from "../../lib/format";
@@ -69,6 +69,17 @@ export default function HeatmapSection({ source }: { source: AgentSource }) {
     refetchInterval: 60_000,
   });
 
+  const scrollRef = useRef<HTMLDivElement>(null);
+  // 数据到位后把横向滚动钉在最右侧（最新日期）；rAF 再钉一次兜底布局时序
+  useEffect(() => {
+    const el = scrollRef.current;
+    if (!el) return;
+    const pin = () => { el.scrollLeft = el.scrollWidth; };
+    pin();
+    const raf = requestAnimationFrame(pin);
+    return () => cancelAnimationFrame(raf);
+  }, [heatmapQuery.data, dim]);
+
   // 周 × 星期网格：周日为第一行，列尾对齐到今天，列首回溯到周日
   const { weeks, maxValue } = useMemo(() => {
     const byDate = new Map<string, HeatmapDay>();
@@ -103,13 +114,13 @@ export default function HeatmapSection({ source }: { source: AgentSource }) {
   return (
     <>
       {heatmapQuery.error && (
-        <p className="mb-2.5 rounded-md border border-red-300 bg-red-50 px-3 py-2 text-base text-red-600 dark:border-red-900/60 dark:bg-red-950/40 dark:text-red-300">
+        <p className="mb-2.5 rounded-md border border-red-300 bg-red-50 px-1.5 py-2 text-base text-red-600 dark:border-red-900/60 dark:bg-red-950/40 dark:text-red-300">
           {(heatmapQuery.error as Error).message}
         </p>
       )}
 
-      <section className="rounded-xl border border-zinc-200 bg-white p-3.5 shadow-[inset_0_1px_0_rgba(255,255,255,0.03)] dark:border-zinc-800/60 dark:bg-zinc-900/50">
-        <div className="mb-2 flex flex-wrap items-center justify-between gap-2.5">
+      <section className="min-w-0 rounded-xl border border-zinc-200 bg-white px-1.5 py-2.5 shadow-[inset_0_1px_0_rgba(255,255,255,0.03)] dark:border-zinc-800/60 dark:bg-zinc-900/50">
+        <div className="mb-1.5 flex flex-wrap items-center justify-between gap-x-1 gap-y-2.5">
           <p className="text-base text-zinc-500 dark:text-zinc-400">
             近一年每天的 token 用量（本地时区）
           </p>
@@ -117,7 +128,7 @@ export default function HeatmapSection({ source }: { source: AgentSource }) {
             {(Object.keys(DIMENSION_LABELS) as Dimension[]).map((d) => (
               <button
                 key={d}
-                className={`rounded-md px-3 py-1 text-base ${
+                className={`rounded-md px-1.5 py-1 text-base ${
                   dim === d
                     ? "bg-emerald-600 text-white"
                     : "text-zinc-500 hover:text-zinc-800 dark:text-zinc-400 dark:hover:text-zinc-200"
@@ -130,9 +141,9 @@ export default function HeatmapSection({ source }: { source: AgentSource }) {
           </div>
         </div>
         {heatmapQuery.isLoading ? (
-          <p className="py-16 text-center text-base text-zinc-400 dark:text-zinc-600">加载中…</p>
+          <p className="py-10 text-center text-base text-zinc-400 dark:text-zinc-600">加载中…</p>
         ) : (
-          <div className="overflow-x-auto pb-1">
+          <div ref={scrollRef} className="overflow-x-auto pb-1">
             <div className="inline-flex gap-[3px]">
               {/* 左侧星期标签（一/三/五） */}
               <div className="mr-1 flex flex-col gap-[3px] text-[10px] leading-3 text-zinc-400 dark:text-zinc-600">
@@ -180,7 +191,7 @@ export default function HeatmapSection({ source }: { source: AgentSource }) {
           </div>
         )}
 
-        <div className="mt-2 flex items-center justify-end gap-1.5 text-sm text-zinc-500">
+        <div className="mt-1.5 flex items-center justify-end gap-1.5 text-sm text-zinc-500">
           <span>少</span>
           {levelColors.map((c) => (
             <span key={c} className={`h-3 w-3 rounded-[2px] ${c}`} />

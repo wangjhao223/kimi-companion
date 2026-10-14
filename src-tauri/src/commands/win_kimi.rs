@@ -5,7 +5,8 @@ use tauri::State;
 
 use crate::database::Database;
 use crate::models::{
-    DesktopAppInfo, HeatmapDay, SharedWinKimiStatus, StatsSummary, TrendPoint, WinKimiStatus,
+    DesktopAppInfo, HeatmapDay, RatePoint, SharedWinKimiStatus, SpeedStats, StatsSummary,
+    TrendPoint, WinKimiStatus,
 };
 use crate::services::{desktop, stats};
 
@@ -35,6 +36,27 @@ pub async fn get_win_kimi_trend(
 ) -> Result<Vec<TrendPoint>, String> {
     let db = db.inner().clone();
     tauri::async_runtime::spawn_blocking(move || stats::get_win_kimi_trend(&db, days))
+        .await
+        .map_err(|e| format!("任务执行失败: {e}"))?
+}
+
+/// Win Kimi 速率：近 minutes 分钟的 RPM/TPM 分钟序列（默认 60 分钟，缺口补零）。
+#[tauri::command]
+pub async fn get_win_kimi_rates(
+    db: State<'_, Database>,
+    minutes: Option<u32>,
+) -> Result<Vec<RatePoint>, String> {
+    let db = db.inner().clone();
+    tauri::async_runtime::spawn_blocking(move || stats::get_win_kimi_rates(&db, minutes))
+        .await
+        .map_err(|e| format!("任务执行失败: {e}"))?
+}
+
+/// Win Kimi 输出速度：当前瞬时速度 + 近 1 小时 / 今日加权均速（tok/s）。
+#[tauri::command]
+pub async fn get_win_kimi_speed(db: State<'_, Database>) -> Result<SpeedStats, String> {
+    let db = db.inner().clone();
+    tauri::async_runtime::spawn_blocking(move || stats::get_win_kimi_speed(&db))
         .await
         .map_err(|e| format!("任务执行失败: {e}"))?
 }
