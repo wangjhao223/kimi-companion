@@ -2,9 +2,10 @@ export interface LaunchStatus {
   wsl_ok: boolean;
   kimi_installed: boolean;
   running: boolean;
-  tui_running: boolean;
   port: number | null;
   url: string | null;
+  remote_control: boolean;
+  rc_url: string | null;
 }
 
 export interface LedgerStatus {

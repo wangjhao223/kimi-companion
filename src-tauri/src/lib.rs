@@ -52,6 +52,8 @@ pub fn run() {
             commands::launcher::get_launch_status,
             commands::launcher::start_kimi_web,
             commands::launcher::stop_kimi_web,
+            commands::launcher::set_remote_control,
+            commands::launcher::get_rc_qrcode,
             commands::ledger::check_hook_installed,
             commands::ledger::install_hook,
             commands::ledger::get_ledger_status,

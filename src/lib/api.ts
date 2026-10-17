@@ -31,6 +31,19 @@ export function stopKimiWeb(): Promise<void> {
   return invoke<void>("stop_kimi_web");
 }
 
+/** 开关 kimi web 远程控制；web 未运行时开启会顺带启动 web。 */
+export function setRemoteControl(
+  distro: string,
+  enable: boolean
+): Promise<LaunchStatus> {
+  return invoke<LaunchStatus>("set_remote_control", { distro, enable });
+}
+
+/** 远程控制二维码（PNG 的 base64，无 data URL 前缀）。 */
+export function getRcQrcode(distro: string): Promise<string> {
+  return invoke<string>("get_rc_qrcode", { distro });
+}
+
 export function checkHookInstalled(distro: string): Promise<boolean> {
   return invoke<boolean>("check_hook_installed", { distro });
 }

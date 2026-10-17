@@ -7,6 +7,10 @@ pub struct RunningInstance {
     pub distro: String,
     pub port: u16,
     pub token: String,
+    /// 是否以远程控制模式（`kimi web --rc`）启动
+    pub remote_control: bool,
+    /// 远程控制链接（经 code-rc.kimi.com 云端中继），未解析到为 None
+    pub rc_url: Option<String>,
 }
 
 /// 返回给前端的启动页整体状态。
@@ -15,11 +19,13 @@ pub struct LaunchStatus {
     pub wsl_ok: bool,
     pub kimi_installed: bool,
     pub running: bool,
-    /// 是否有 kimi TUI（交互会话）在运行
-    pub tui_running: bool,
     pub port: Option<u16>,
     /// 完整可打开的地址，含 token fragment：`http://127.0.0.1:<port>/#token=<token>`
     pub url: Option<String>,
+    /// 当前实例是否开启了远程控制（`kimi web --rc`）
+    pub remote_control: bool,
+    /// 远程控制链接；未开启或未解析到为 None
+    pub rc_url: Option<String>,
 }
 
 /// 一个时间段内的 token 用量合计。

@@ -1,11 +1,13 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { openUrl } from "@tauri-apps/plugin-opener";
 import {
   checkHookInstalled,
   getLaunchStatus,
+  getRcQrcode,
   installHook,
   listDistros,
+  setRemoteControl,
   startKimiWeb,
   stopKimiWeb,
 } from "../../lib/api";
@@ -38,12 +40,16 @@ function StatusRow({
   detail?: string;
 }) {
   return (
-    <div className="flex items-center justify-between py-0.5">
-      <div className="flex items-center gap-3">
+    <div className="flex items-center justify-between gap-2 py-0.5">
+      <div className="flex min-w-0 items-center gap-2">
         <StatusDot ok={ok} busy={busy} />
-        <span className="text-base text-zinc-700 dark:text-zinc-300">{label}</span>
+        <span className="truncate text-base text-zinc-700 dark:text-zinc-300">{label}</span>
       </div>
-      {detail && <span className="text-base text-zinc-500">{detail}</span>}
+      {detail && (
+        <span className="shrink-0 whitespace-nowrap text-base text-zinc-500">
+          {detail}
+        </span>
+      )}
     </div>
   );
 }
@@ -53,6 +59,15 @@ export default function LaunchPanel() {
   const queryClient = useQueryClient();
   const [distro, setDistro] = useState<string | null>(null);
   const [hintIdx, setHintIdx] = useState(0);
+  const [showQr, setShowQr] = useState(false);
+  const [copied, setCopied] = useState(false);
+  const copyTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  useEffect(() => {
+    return () => {
+      if (copyTimerRef.current) clearTimeout(copyTimerRef.current);
+    };
+  }, []);
 
   const distrosQuery = useQuery({
     queryKey: ["distros"],
@@ -114,6 +129,13 @@ export default function LaunchPanel() {
     },
   });
 
+  const rcMutation = useMutation({
+    mutationFn: (enable: boolean) => setRemoteControl(distro!, enable),
+    onSettled: () => {
+      queryClient.invalidateQueries({ queryKey: ["launch-status"] });
+    },
+  });
+
   const starting = startMutation.isPending;
 
   // 启动期间轮播进度文案
@@ -127,12 +149,34 @@ export default function LaunchPanel() {
   }, [starting]);
 
   const status = statusQuery.data;
+  const rcEnabled = status?.remote_control ?? false;
+
+  const qrcodeQuery = useQuery({
+    queryKey: ["rc-qrcode", distro, status?.rc_url],
+    queryFn: () => getRcQrcode(distro!),
+    enabled: showQr && !!distro,
+    staleTime: 0,
+  });
+
+  const copyRcUrl = () => {
+    if (!status?.rc_url) return;
+    navigator.clipboard
+      .writeText(status.rc_url)
+      .then(() => {
+        setCopied(true);
+        if (copyTimerRef.current) clearTimeout(copyTimerRef.current);
+        copyTimerRef.current = setTimeout(() => setCopied(false), 1500);
+      })
+      .catch(() => {});
+  };
+
   const error =
     (startMutation.error as Error | null)?.message ??
     (stopMutation.error as Error | null)?.message ??
     (statusQuery.error as Error | null)?.message ??
     null;
   const installError = (installMutation.error as Error | null)?.message ?? null;
+  const rcError = (rcMutation.error as Error | null)?.message ?? null;
   const hookInstalled = hookQuery.data === true;
 
   return (
@@ -221,10 +265,6 @@ export default function LaunchPanel() {
             detail={status?.port ? `端口 ${status.port}` : undefined}
           />
           <StatusRow
-            label="Kimi Code CLI 运行中"
-            ok={status?.tui_running ?? false}
-          />
-          <StatusRow
             label="记账 hook"
             ok={hookInstalled}
             busy={hookQuery.isFetching && hookQuery.data === undefined}
@@ -285,6 +325,114 @@ export default function LaunchPanel() {
             </button>
           </div>
         </section>
+      )}
+
+      <section className="min-w-0 rounded-xl border border-zinc-200 bg-white px-1.5 py-2 shadow-[inset_0_1px_0_rgba(255,255,255,0.03)] dark:border-zinc-800/60 dark:bg-zinc-900/50">
+        <div className="flex items-center justify-between gap-2">
+          <div className="flex items-center gap-3">
+            <StatusDot ok={rcEnabled} busy={rcMutation.isPending} />
+            <span className="text-base text-zinc-700 dark:text-zinc-300">
+              远程控制
+            </span>
+          </div>
+          <button
+            className={`shrink-0 rounded-lg px-1.5 py-1.5 text-base font-medium text-white disabled:opacity-50 ${
+              rcEnabled
+                ? "bg-red-600/90 hover:bg-red-500"
+                : "bg-emerald-600 hover:bg-emerald-500"
+            }`}
+            onClick={() => distro && rcMutation.mutate(!rcEnabled)}
+            disabled={!distro || rcMutation.isPending}
+          >
+            {rcMutation.isPending ? (
+              <span className="flex items-center gap-2">
+                <span className="h-3.5 w-3.5 animate-spin rounded-full border-2 border-white/40 border-t-white" />
+                {rcMutation.variables ? "开启中…" : "关闭中…"}
+              </span>
+            ) : rcEnabled ? (
+              "关闭"
+            ) : (
+              "开启"
+            )}
+          </button>
+        </div>
+
+        {rcEnabled && status?.rc_url && (
+          <>
+            <div className="mt-1.5 flex items-center gap-2">
+              <p
+                className="min-w-0 flex-1 truncate font-mono text-base text-emerald-600 dark:text-emerald-300"
+                title={status.rc_url}
+              >
+                {status.rc_url}
+              </p>
+              <button
+                className="shrink-0 rounded-lg border border-zinc-300 px-1.5 py-1.5 text-base hover:bg-zinc-200 dark:border-zinc-700 dark:hover:bg-zinc-800"
+                onClick={copyRcUrl}
+              >
+                {copied ? "已复制" : "复制"}
+              </button>
+              <button
+                className="shrink-0 rounded-lg border border-zinc-300 px-1.5 py-1.5 text-base hover:bg-zinc-200 dark:border-zinc-700 dark:hover:bg-zinc-800"
+                onClick={() => setShowQr(true)}
+              >
+                二维码
+              </button>
+            </div>
+            <p className="mt-1 text-sm text-zinc-500 dark:text-zinc-400">
+              该链接和二维码可控制本机，请勿分享给他人
+            </p>
+          </>
+        )}
+
+        {rcError && (
+          <p className="mt-1.5 rounded-md border border-red-300 bg-red-50 px-1.5 py-2 text-base text-red-600 dark:border-red-900/60 dark:bg-red-950/40 dark:text-red-300">
+            {rcError}
+          </p>
+        )}
+      </section>
+
+      {showQr && (
+        <div
+          className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-4"
+          onClick={() => setShowQr(false)}
+        >
+          <div
+            className="w-full max-w-xs rounded-xl bg-white p-4 shadow-xl dark:bg-zinc-900"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <p className="text-base font-medium text-zinc-700 dark:text-zinc-200">
+              扫码远程控制
+            </p>
+            {qrcodeQuery.isLoading ? (
+              <div className="flex h-48 items-center justify-center">
+                <span className="h-5 w-5 animate-spin rounded-full border-2 border-zinc-400/40 border-t-zinc-500 dark:border-zinc-500/40 dark:border-t-zinc-300" />
+              </div>
+            ) : qrcodeQuery.isError ? (
+              <p className="mt-2 text-base text-red-600 dark:text-red-300">
+                {(qrcodeQuery.error as Error | null)?.message ??
+                  "二维码加载失败"}
+              </p>
+            ) : qrcodeQuery.data ? (
+              <div className="mt-2">
+                <img
+                  src={`data:image/png;base64,${qrcodeQuery.data}`}
+                  className="w-full rounded-lg bg-white p-2"
+                  alt="远程控制二维码"
+                />
+              </div>
+            ) : null}
+            <p className="mt-2 text-sm text-zinc-500 dark:text-zinc-400">
+              该链接和二维码可控制本机，请勿分享给他人
+            </p>
+            <button
+              className="mt-3 w-full rounded-lg border border-zinc-300 px-2 py-1.5 text-base hover:bg-zinc-200 dark:border-zinc-700 dark:hover:bg-zinc-800"
+              onClick={() => setShowQr(false)}
+            >
+              关闭
+            </button>
+          </div>
+        </div>
       )}
     </div>
   );

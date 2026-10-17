@@ -61,7 +61,7 @@ pub struct WslOutput {
 ///
 /// 注意（实测踩坑）：wsl.exe 会把 `--` 之后的参数重新拼接成一条命令字符串，
 /// 交给 /bin/bash -c 再解析一层——脚本里的 $var / $(...) 会被这层外层 shell
-/// 提前展开成空值（例如探测脚本恒输出 "installed= tui="）。因此命令统一
+/// 提前展开成空值（例如探测脚本恒输出 "installed="）。因此命令统一
 /// base64 编码传输、WSL 内解码后交给登录 shell 执行，规避双层展开。
 pub fn run_in_wsl_full(distro: &str, cmd: &str) -> Result<WslOutput, String> {
     let b64 = base64::engine::general_purpose::STANDARD.encode(cmd);
@@ -136,25 +136,18 @@ pub fn unc_home_candidates(distro: &str, sub: &str) -> [PathBuf; 2] {
     ]
 }
 
-/// 一次 WSL 合并探测的结果（单条 bash 命令拿到，省进程拉起开销）。
+/// 一次 WSL 合并探测的结果。
 #[derive(Debug, Clone)]
 pub struct WslProbe {
     /// 发行版里是否安装了 kimi CLI
     pub kimi_installed: bool,
-    /// 是否有 kimi TUI（交互会话）在跑：所有 kimi 进程减去 web 服务进程
-    pub tui_running: bool,
 }
 
-/// 合并探测脚本：一条命令输出 "installed=yes|no tui=yes|no"。
-///
-/// web 服务进程 PID 取自 ~/.kimi-code/server/instances/*.json；
-/// kimi 进程会改写 argv，进程名一律为 "kimi"，其余进程即 TUI 会话。
-const PROBE_SCRIPT: &str = r#"i=no; which kimi >/dev/null 2>&1 && i=yes; \
-w=" $(grep -o '"pid":[0-9]*' ~/.kimi-code/server/instances/*.json 2>/dev/null | cut -d: -f2 | tr '\n' ' ')"; \
-t=no; for p in $(pgrep -x kimi); do case " $w " in *" $p "*) ;; *) t=yes; break;; esac; done; \
-echo "installed=$i tui=$t""#;
+/// 探测脚本：输出 "installed=yes|no"。
+const PROBE_SCRIPT: &str =
+    r#"i=no; which kimi >/dev/null 2>&1 && i=yes; echo "installed=$i""#;
 
-/// 自检：kimi 是否安装 + 是否有 TUI 在跑，单次 wsl.exe 调用完成。
+/// 自检：kimi 是否安装。
 ///
 /// 只解析最后一行输出：bash -l 加载的 profile 可能往 stdout 打杂讯。
 pub fn probe(distro: &str) -> Result<WslProbe, String> {
@@ -162,7 +155,6 @@ pub fn probe(distro: &str) -> Result<WslProbe, String> {
     let last = out.lines().last().unwrap_or("");
     Ok(WslProbe {
         kimi_installed: last.split_whitespace().any(|t| t == "installed=yes"),
-        tui_running: last.split_whitespace().any(|t| t == "tui=yes"),
     })
 }
 
@@ -170,22 +162,6 @@ pub fn probe(distro: &str) -> Result<WslProbe, String> {
 pub fn kill_all_kimi(distro: &str) -> Result<(), String> {
     run_in_wsl(distro, "pkill -x kimi || true")?;
     Ok(())
-}
-
-/// 弹出一个可见终端窗口运行命令（用于启动 kimi TUI；不加 CREATE_NO_WINDOW，
-/// Windows 会为控制台子进程分配可见控制台窗口）。
-#[cfg(windows)]
-pub fn spawn_visible_terminal(distro: &str, cmd: &str) -> Result<(), String> {
-    Command::new("wsl.exe")
-        .args(["-d", distro, "--", "bash", "-lc", cmd])
-        .spawn()
-        .map_err(|e| format!("无法打开终端窗口: {e}"))?;
-    Ok(())
-}
-
-#[cfg(not(windows))]
-pub fn spawn_visible_terminal(_distro: &str, _cmd: &str) -> Result<(), String> {
-    Err("spawn_visible_terminal 仅在 Windows 上可用".to_string())
 }
 
 /// 拉起一个长驻 WSL 前台进程（无窗口）。wsl.exe 保持运行，WSL 就不会回收会话。

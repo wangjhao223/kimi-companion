@@ -5,8 +5,8 @@
 //! 2. 否则由长驻 wsl.exe 承载 `kimi web` 前台进程拉起（见 wsl::spawn_persistent）；
 //! 3. 轮询 `http://127.0.0.1:<port>/api/v1/healthz`（端口 58627~58637 逐个试，最多 30 秒，
 //!    依赖 WSL2 的 localhost 转发）；
-//! 4. 健康后读 `~/.kimi-code/server.token` 并调认证接口验证，写入 AppState；
-//! 5. 没有 kimi TUI 在跑时，弹可见终端窗口启动它。
+//! 4. 健康后读 `~/.kimi-code/server.token` 并调认证接口验证，写入 AppState。
+//!    （不再自动弹终端启动 TUI——可见命令行窗口是噪音，web 不依赖它。）
 //!
 //! 停止流程：shutdown API 优雅停 web → `pkill -x kimi` 清剿全部 kimi 进程（含 TUI）。
 
@@ -23,6 +23,14 @@ use crate::services::wsl::{self, WslProbe};
 pub const PORT_RANGE: std::ops::RangeInclusive<u16> = 58627..=58637;
 const HEALTH_WAIT_MAX: Duration = Duration::from_secs(30);
 const HEALTH_POLL_INTERVAL: Duration = Duration::from_millis(500);
+
+/// 远程控制：健康后等待 RC 链接出现在日志里的最长时间 / 轮询间隔。
+const RC_LINK_WAIT_MAX: Duration = Duration::from_secs(10);
+const RC_LINK_POLL_INTERVAL: Duration = Duration::from_millis(500);
+const RC_UNSUPPORTED_MSG: &str =
+    "当前 kimi CLI 不支持远程控制（--rc），请先在「检查更新」模块升级 CLI";
+const RC_LINK_TIMEOUT_MSG: &str =
+    "远程控制链接生成超时，请检查网络（需能访问 code-rc.kimi.com）后重试";
 
 // WSL 探测缓存：合并后的单次探测（wsl::probe）仍有 wsl.exe 进程拉起成本，
 // 状态轮询每 2.5s 一次全量跑不划算，按 TTL 缓存；start/stop 后主动失效。
@@ -85,6 +93,92 @@ fn build_url(port: u16, token: &str) -> String {
     format!("http://127.0.0.1:{port}/#token={token}")
 }
 
+/// 拉起 kimi web。rc=true 时带 `--rc`（远程控制），日志仍追加到同一文件。
+fn spawn_web(distro: &str, rc: bool) -> Result<(), String> {
+    let flag = if rc { " --rc" } else { "" };
+    wsl::spawn_persistent(
+        distro,
+        &format!(
+            "cd ~ && mkdir -p ~/.kimi-code && exec kimi web{flag} >> ~/.kimi-code/companion-web.log 2>&1"
+        ),
+    )
+}
+
+/// 记录日志当前行数。后续只解析新增行，避免把上一次启动留下的 RC 链接当成新链接。
+/// 日志不存在时 wc 失败，按 0 处理。
+fn log_line_offset(distro: &str) -> usize {
+    wsl::run_in_wsl(
+        distro,
+        "wc -l < ~/.kimi-code/companion-web.log 2>/dev/null || echo 0",
+    )
+    .ok()
+    .and_then(|out| {
+        out.lines()
+            .rev()
+            .find_map(|line| line.trim().parse::<usize>().ok())
+    })
+    .unwrap_or(0)
+}
+
+enum RcLogProbe {
+    /// 新日志里出现「未知参数」错误：旧版 CLI 不支持 --rc
+    Unsupported,
+    /// 解析到远程控制链接
+    Url(String),
+    /// 暂时还没有链接
+    Pending,
+}
+
+/// 只扫描 offset 之后的新日志行：先剥 ANSI 颜色码（否则 ESC 会粘进 URL），
+/// 再找 RC 链接；同时检查旧版 CLI 的 `unexpected argument` / `unrecognized`
+/// 报错，避免等满健康检查/链接超时。
+fn probe_rc_log(distro: &str, offset: usize) -> RcLogProbe {
+    let from = offset.saturating_add(1);
+    let script = format!(
+        "L={from}; \
+         if tail -n +$L ~/.kimi-code/companion-web.log 2>/dev/null | sed 's/\\x1b\\[[0-9;]*[A-Za-z]//g' | grep -qiE 'unexpected argument|unrecognized'; then \
+           echo __RC_UNSUPPORTED__; \
+         else \
+           tail -n +$L ~/.kimi-code/companion-web.log 2>/dev/null | sed 's/\\x1b\\[[0-9;]*[A-Za-z]//g' | grep -oE 'https://code-rc\\.kimi\\.com/devices/[^[:space:]\"]+' | tail -1; \
+         fi"
+    );
+    let out = match wsl::run_in_wsl(distro, &script) {
+        Ok(out) => out,
+        Err(_) => return RcLogProbe::Pending,
+    };
+    if out.lines().any(|line| line.trim() == "__RC_UNSUPPORTED__") {
+        return RcLogProbe::Unsupported;
+    }
+    match out.lines().last().map(|line| line.trim()) {
+        Some(url) if url.starts_with("https://code-rc.kimi.com/devices/") => {
+            RcLogProbe::Url(url.to_string())
+        }
+        _ => RcLogProbe::Pending,
+    }
+}
+
+enum RcLinkWait {
+    Found(String),
+    Unsupported,
+    Timeout,
+}
+
+/// 健康后最多等 10 秒，每 500ms 扫一次新增日志找 RC 链接。
+fn wait_for_rc_url(distro: &str, offset: usize) -> RcLinkWait {
+    let started = Instant::now();
+    loop {
+        match probe_rc_log(distro, offset) {
+            RcLogProbe::Url(url) => return RcLinkWait::Found(url),
+            RcLogProbe::Unsupported => return RcLinkWait::Unsupported,
+            RcLogProbe::Pending => {}
+        }
+        if started.elapsed() >= RC_LINK_WAIT_MAX {
+            return RcLinkWait::Timeout;
+        }
+        std::thread::sleep(RC_LINK_POLL_INTERVAL);
+    }
+}
+
 /// 查询当前状态。distro 为 None 时跳过 WSL 侧检查（只做端口探测）。
 pub fn get_status(state: &Arc<Mutex<Option<RunningInstance>>>, distro: Option<&str>) -> LaunchStatus {
     // 探测请求走 loopback，未监听时 connect 会立刻失败，500ms 超时足够。
@@ -95,24 +189,26 @@ pub fn get_status(state: &Arc<Mutex<Option<RunningInstance>>>, distro: Option<&s
                 wsl_ok: false,
                 kimi_installed: false,
                 running: false,
-                tui_running: false,
                 port: None,
                 url: None,
+                remote_control: false,
+                rc_url: None,
             }
         }
     };
     let port = probe_running(client, Duration::from_millis(500));
 
-    let (wsl_ok, kimi_installed, tui_running) = match distro {
+    let (wsl_ok, kimi_installed) = match distro {
         Some(d) => match cached_probe(d) {
-            Ok(p) => (true, p.kimi_installed, p.tui_running),
-            Err(_) => (false, false, false),
+            Ok(p) => (true, p.kimi_installed),
+            Err(_) => (false, false),
         },
-        None => (false, false, false),
+        None => (false, false),
     };
 
     // 接管非本应用启动的实例：发现健康端口但状态里没有（或端口不一致）时，
     // 从 WSL 读 token 纳入管理——否则「停止」和完整 URL 只对亲手启动的实例可用。
+    // 外部启动的实例无法可靠探测是否开了 --rc，一律按未开启处理。
     if let (Some(port), Some(d)) = (port, distro) {
         let known = state
             .lock()
@@ -127,6 +223,8 @@ pub fn get_status(state: &Arc<Mutex<Option<RunningInstance>>>, distro: Option<&s
                             distro: d.to_string(),
                             port,
                             token,
+                            remote_control: false,
+                            rc_url: None,
                         });
                     }
                 }
@@ -134,21 +232,29 @@ pub fn get_status(state: &Arc<Mutex<Option<RunningInstance>>>, distro: Option<&s
         }
     }
 
-    // token 只在实例由本应用启动/接管过的情况下可用
-    let url = state
+    // token / 远程控制标记只在实例由本应用启动/接管过、且端口仍匹配时可用
+    let known = state
         .lock()
         .ok()
         .and_then(|guard| guard.clone())
-        .filter(|inst| Some(inst.port) == port)
-        .map(|inst| build_url(inst.port, &inst.token));
+        .filter(|inst| Some(inst.port) == port);
+    let (url, remote_control, rc_url) = match known {
+        Some(inst) => (
+            Some(build_url(inst.port, &inst.token)),
+            inst.remote_control,
+            inst.rc_url,
+        ),
+        None => (None, false, None),
+    };
 
     LaunchStatus {
         wsl_ok,
         kimi_installed,
         running: port.is_some(),
-        tui_running,
         port,
         url,
+        remote_control,
+        rc_url,
     }
 }
 
@@ -162,7 +268,7 @@ pub fn start(state: &Arc<Mutex<Option<RunningInstance>>>, distro: &str) -> Resul
     let client = shared_client()?;
     let already_running = probe_running(client, Duration::from_secs(2)).is_some();
 
-    // 未在跑时才需要探测安装情况（一次调用同时拿到 TUI 状态，供第 4 步用）
+    // 未在跑时才需要探测安装情况
     let probe0 = if already_running {
         None
     } else {
@@ -176,23 +282,12 @@ pub fn start(state: &Arc<Mutex<Option<RunningInstance>>>, distro: &str) -> Resul
         // 由长驻 wsl.exe 承载 kimi web 前台进程（见 spawn_persistent 注释），
         // 日志追加写入，便于排查多次重启。先 cd ~：wsl.exe 会把 Windows 侧的
         // 工作目录翻译成 Linux 起始目录，不固定的话会落在 /mnt/c/Users/<用户>。
-        wsl::spawn_persistent(
-            distro,
-            "cd ~ && mkdir -p ~/.kimi-code && exec kimi web >> ~/.kimi-code/companion-web.log 2>&1",
-        )?;
+        spawn_web(distro, false)?;
     }
 
     // 2. 轮询健康检查直到就绪，3. 读 token 并验证
     let (port, token) = wait_ready_and_verify(client, distro)?;
 
-    // 4. 没有 kimi TUI 在跑时，弹一个可见终端窗口启动它（失败不阻塞主流程）
-    let tui_running = match &probe0 {
-        Some(p) => p.tui_running,
-        None => wsl::probe(distro).map(|p| p.tui_running).unwrap_or(false),
-    };
-    if !tui_running {
-        let _ = wsl::spawn_visible_terminal(distro, "cd ~ && exec kimi");
-    }
     // WSL 侧状态已改变，强制下一轮状态轮询重新探测
     invalidate_probe_cache();
 
@@ -200,6 +295,8 @@ pub fn start(state: &Arc<Mutex<Option<RunningInstance>>>, distro: &str) -> Resul
         distro: distro.to_string(),
         port,
         token: token.clone(),
+        remote_control: false,
+        rc_url: None,
     };
     let mut guard = state.lock().map_err(|_| "应用状态锁已损坏".to_string())?;
     *guard = Some(instance);
@@ -209,9 +306,10 @@ pub fn start(state: &Arc<Mutex<Option<RunningInstance>>>, distro: &str) -> Resul
         wsl_ok: true,
         kimi_installed: true,
         running: true,
-        tui_running: true, // 刚拉起或已在跑
         port: Some(port),
         url: Some(build_url(port, &token)),
+        remote_control: false,
+        rc_url: None,
     })
 }
 
@@ -236,9 +334,65 @@ fn wait_ready_and_verify(client: &Client, distro: &str) -> Result<(u16, String),
     Ok((port, token))
 }
 
+/// 与 `wait_ready_and_verify` 相同的健康等待，但每轮同时检查新增日志：
+/// 旧版 CLI 不认识 --rc 会立即退出并打印 `unexpected argument`，这里马上
+/// 返回明确错误，不空等 30 秒健康超时。
+fn wait_ready_and_verify_rc(
+    client: &Client,
+    distro: &str,
+    log_offset: usize,
+) -> Result<(u16, String), String> {
+    let deadline = Instant::now();
+    let port = loop {
+        if let Some(port) = probe_running(client, Duration::from_secs(2)) {
+            break port;
+        }
+        if matches!(probe_rc_log(distro, log_offset), RcLogProbe::Unsupported) {
+            return Err(RC_UNSUPPORTED_MSG.to_string());
+        }
+        if deadline.elapsed() >= HEALTH_WAIT_MAX {
+            return Err(format!(
+                "等待 kimi web 就绪超时（{} 秒）。请检查 WSL 内 ~/.kimi-code/companion-web.log",
+                HEALTH_WAIT_MAX.as_secs()
+            ));
+        }
+        std::thread::sleep(HEALTH_POLL_INTERVAL);
+    };
+    let token = read_verified_token(client, distro, port)?;
+    Ok((port, token))
+}
+
+/// 结束 web 服务进程并等端口清空（最多 10 秒）。pid 取自实例文件；
+/// shutdown API 在 token 不匹配时会失败，直接 kill 最稳。
+fn kill_web_and_wait(client: &Client, distro: &str) -> Result<(), String> {
+    wsl::run_in_wsl(
+        distro,
+        "kill $(grep -o '\"pid\":[0-9]*' ~/.kimi-code/server/instances/*.json 2>/dev/null | cut -d: -f2) 2>/dev/null || true",
+    )?;
+
+    let deadline = Instant::now();
+    while probe_running(client, Duration::from_millis(500)).is_some() {
+        if deadline.elapsed() >= Duration::from_secs(10) {
+            return Err("kimi web 进程未在 10 秒内退出".to_string());
+        }
+        std::thread::sleep(Duration::from_millis(300));
+    }
+    Ok(())
+}
+
+fn store_instance(
+    state: &Arc<Mutex<Option<RunningInstance>>>,
+    instance: RunningInstance,
+) -> Result<(), String> {
+    let mut guard = state.lock().map_err(|_| "应用状态锁已损坏".to_string())?;
+    *guard = Some(instance);
+    Ok(())
+}
+
 /// 安装/更新记账 hook 后调用：kimi web 只在启动时加载一次 hooks 配置，
 /// 已在运行的实例不会加载新配置（实测确认），因此 web 在跑就重启它让记账
 /// 立即生效。只结束 web 服务进程（pid 取自实例文件），TUI 会话不受影响。
+/// 重启保持原来的远程控制开关；RC 链接解析失败只记 None，不让重启本身失败。
 /// 返回是否执行了重启。
 pub fn restart_web_if_running(
     state: &Arc<Mutex<Option<RunningInstance>>>,
@@ -249,37 +403,140 @@ pub fn restart_web_if_running(
         return Ok(false);
     }
 
-    // 结束 web 服务进程。shutdown API 在 token 不匹配时会失败，直接按实例
-    // 文件里的 pid kill 最稳；|| true 兜底保证命令恒以 0 退出。
-    wsl::run_in_wsl(
-        distro,
-        "kill $(grep -o '\"pid\":[0-9]*' ~/.kimi-code/server/instances/*.json 2>/dev/null | cut -d: -f2) 2>/dev/null || true",
-    )?;
+    // 旧实例（若由本应用启动/接管）的远程控制开关决定重启参数。
+    let remote_control = state
+        .lock()
+        .ok()
+        .and_then(|guard| guard.as_ref().map(|inst| inst.remote_control))
+        .unwrap_or(false);
 
-    // 等端口清空（最多 10 秒）
-    let deadline = Instant::now();
-    while probe_running(client, Duration::from_millis(500)).is_some() {
-        if deadline.elapsed() >= Duration::from_secs(10) {
-            return Err("kimi web 进程未在 10 秒内退出".to_string());
-        }
-        std::thread::sleep(Duration::from_millis(300));
-    }
+    kill_web_and_wait(client, distro)?;
 
-    wsl::spawn_persistent(
-        distro,
-        "cd ~ && mkdir -p ~/.kimi-code && exec kimi web >> ~/.kimi-code/companion-web.log 2>&1",
-    )?;
-    let (port, token) = wait_ready_and_verify(client, distro)?;
+    let offset = if remote_control {
+        Some(log_line_offset(distro))
+    } else {
+        None
+    };
+    spawn_web(distro, remote_control)?;
+    let (port, token) = match offset {
+        Some(offset) => wait_ready_and_verify_rc(client, distro, offset)?,
+        None => wait_ready_and_verify(client, distro)?,
+    };
 
-    let mut guard = state.lock().map_err(|_| "应用状态锁已损坏".to_string())?;
-    *guard = Some(RunningInstance {
-        distro: distro.to_string(),
-        port,
-        token,
+    // RC 链接解析失败（网络/日志时序）不影响重启本身，例如 hook 安装。
+    let rc_url = offset.and_then(|offset| match wait_for_rc_url(distro, offset) {
+        RcLinkWait::Found(url) => Some(url),
+        _ => None,
     });
-    drop(guard);
+
+    store_instance(
+        state,
+        RunningInstance {
+            distro: distro.to_string(),
+            port,
+            token,
+            remote_control,
+            rc_url,
+        },
+    )?;
     invalidate_probe_cache();
     Ok(true)
+}
+
+/// 开关 kimi web 远程控制（`kimi web --rc`）。
+///
+/// enable=true：已有实例先重启为 --rc 模式，健康后解析云端中继链接；
+/// enable=false：在跑则重启为普通模式，否则只清掉状态里的远程控制标记。
+pub fn set_remote_control(
+    state: &Arc<Mutex<Option<RunningInstance>>>,
+    distro: &str,
+    enable: bool,
+) -> Result<LaunchStatus, String> {
+    let client = shared_client()?;
+    let running = probe_running(client, Duration::from_millis(800)).is_some();
+
+    if !enable {
+        if running {
+            kill_web_and_wait(client, distro)?;
+            spawn_web(distro, false)?;
+            let (port, token) = wait_ready_and_verify(client, distro)?;
+            store_instance(
+                state,
+                RunningInstance {
+                    distro: distro.to_string(),
+                    port,
+                    token,
+                    remote_control: false,
+                    rc_url: None,
+                },
+            )?;
+            invalidate_probe_cache();
+        } else if let Ok(mut guard) = state.lock() {
+            if let Some(instance) = guard.as_mut() {
+                instance.remote_control = false;
+                instance.rc_url = None;
+            }
+        }
+        return Ok(get_status(state, Some(distro)));
+    }
+
+    if running {
+        kill_web_and_wait(client, distro)?;
+    } else {
+        let probe = wsl::probe(distro)?;
+        if !probe.kimi_installed {
+            return Err(format!("发行版 {distro} 中没有找到 kimi CLI（which kimi 为空）"));
+        }
+    }
+
+    // 先记偏移再启动：只解析本次启动追加的日志，避免误取旧链接。
+    let offset = log_line_offset(distro);
+    spawn_web(distro, true)?;
+    let (port, token) = wait_ready_and_verify_rc(client, distro, offset)?;
+
+    // 健康后最多再等 10 秒：进程可能稍后才打印链接、写二维码。
+    let rc_url = match wait_for_rc_url(distro, offset) {
+        RcLinkWait::Found(url) => url,
+        RcLinkWait::Unsupported => return Err(RC_UNSUPPORTED_MSG.to_string()),
+        RcLinkWait::Timeout => {
+            // 实例已在运行：先落状态再报错，避免前端显示未运行但端口实际被占用。
+            store_instance(
+                state,
+                RunningInstance {
+                    distro: distro.to_string(),
+                    port,
+                    token,
+                    remote_control: true,
+                    rc_url: None,
+                },
+            )?;
+            invalidate_probe_cache();
+            return Err(RC_LINK_TIMEOUT_MSG.to_string());
+        }
+    };
+
+    store_instance(
+        state,
+        RunningInstance {
+            distro: distro.to_string(),
+            port,
+            token,
+            remote_control: true,
+            rc_url: Some(rc_url),
+        },
+    )?;
+    invalidate_probe_cache();
+    Ok(get_status(state, Some(distro)))
+}
+
+/// 读取远程控制二维码 PNG（WSL 内 `~/.kimi-code/rc-qrcode.png`），返回 base64。
+pub fn rc_qrcode_base64(distro: &str) -> Result<String, String> {
+    let out = wsl::run_in_wsl(distro, "base64 -w0 ~/.kimi-code/rc-qrcode.png")
+        .map_err(|_| "二维码文件不存在，请先开启远程控制".to_string())?;
+    if out.is_empty() {
+        return Err("二维码文件不存在，请先开启远程控制".to_string());
+    }
+    Ok(out)
 }
 
 /// 读 server.token 并调认证接口验证；验证失败时重读一次再验（应对写入时序竞争）。
