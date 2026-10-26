@@ -45,7 +45,7 @@ export default function CostCard({ summary }: { summary?: StatsSummary }) {
     return (
       <div
         key={m.model}
-        className="grid grid-cols-[minmax(0,1fr)_repeat(4,3rem)_4rem] items-center gap-2 text-sm"
+        className="grid grid-cols-[minmax(0,1fr)_repeat(4,3rem)_4rem] items-center gap-2 text-base"
       >
         <span
           className="truncate font-mono text-zinc-700 dark:text-zinc-300"
@@ -80,11 +80,11 @@ export default function CostCard({ summary }: { summary?: StatsSummary }) {
   return (
     <section className="min-w-0 h-full rounded-xl border border-zinc-200 bg-white px-1.5 py-2.5 shadow-[inset_0_1px_0_rgba(255,255,255,0.03)] dark:border-zinc-800/60 dark:bg-zinc-900/50">
       <div className="mb-1.5 flex items-baseline justify-between gap-3">
-        <p className="text-base text-zinc-500 dark:text-zinc-400">费用估算</p>
-        <p className="font-mono text-base text-emerald-600 dark:text-emerald-300">{formatCost(totalCost)}</p>
+        <p className="text-sm text-zinc-500 dark:text-zinc-400">费用估算</p>
+        <p className="font-mono text-xl text-emerald-600 dark:text-emerald-300">{formatCost(totalCost)}</p>
       </div>
       {models.length === 0 ? (
-        <p className="text-base text-zinc-400 dark:text-zinc-600">暂无数据</p>
+        <p className="text-sm text-zinc-400 dark:text-zinc-600">暂无数据</p>
       ) : (
         <div className="space-y-1.5">
           <div className="grid grid-cols-[minmax(0,1fr)_repeat(4,3rem)_4rem] items-center gap-2 text-xs text-zinc-400 dark:text-zinc-600">

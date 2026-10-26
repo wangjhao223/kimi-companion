@@ -20,7 +20,7 @@ export default function LedgerSyncCard() {
           </span>{" "}
           条记录
         </span>
-        <span className="text-sm text-zinc-500">
+        <span className="text-base text-zinc-500">
           {ledger?.last_sync_at_ms
             ? `最近同步 ${new Date(ledger.last_sync_at_ms).toLocaleTimeString()}`
             : "尚未同步"}

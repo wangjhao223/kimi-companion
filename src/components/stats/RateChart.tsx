@@ -66,13 +66,13 @@ export default function RateChart({ source }: { source: AgentSource }) {
 
   return (
     <section className="min-w-0 h-full rounded-xl border border-zinc-200 bg-white px-1.5 py-2.5 shadow-[inset_0_1px_0_rgba(255,255,255,0.03)] dark:border-zinc-800/60 dark:bg-zinc-900/50">
-      <div className="mb-1.5 flex items-center justify-between">
-        <p className="text-base text-zinc-500 dark:text-zinc-400">近 60 分钟速率</p>
-        <div className="flex items-center gap-4 text-sm text-zinc-500">
+      <div className="mb-1.5 flex flex-wrap items-center justify-between gap-x-2 gap-y-1">
+        <p className="text-sm text-zinc-500 dark:text-zinc-400">近 60 分钟速率</p>
+        <div className="flex min-w-0 flex-wrap items-center justify-end gap-x-4 gap-y-1 text-sm text-zinc-500">
           {latest ? (
-            <span className="text-zinc-600 dark:text-zinc-300">
+            <span className="text-base text-zinc-600 dark:text-zinc-300">
               当前 TPM {formatTokens(latest.tokens, unit)} · RPM {latest.requests}
-              <span className="ml-1 text-zinc-400 dark:text-zinc-500">
+              <span className="ml-1 text-sm text-zinc-400 dark:text-zinc-500">
                 ({formatMinute(latest.minute_start_ms)})
               </span>
             </span>
@@ -100,7 +100,7 @@ export default function RateChart({ source }: { source: AgentSource }) {
               <CartesianGrid stroke={ui.grid} strokeDasharray="3 3" vertical={false} />
               <XAxis
                 dataKey="minute_start_ms"
-                tick={{ fill: ui.tick, fontSize: 12 }}
+                tick={{ fill: ui.tick, fontSize: 13 }}
                 tickFormatter={(ms: number) => formatMinute(ms)}
                 tickLine={false}
                 axisLine={{ stroke: ui.axis }}
@@ -108,7 +108,7 @@ export default function RateChart({ source }: { source: AgentSource }) {
               />
               <YAxis
                 yAxisId="tpm"
-                tick={{ fill: ui.tick, fontSize: 12 }}
+                tick={{ fill: ui.tick, fontSize: 13 }}
                 tickFormatter={(v: number) => formatTokens(v, unit)}
                 tickLine={false}
                 axisLine={false}
@@ -117,7 +117,7 @@ export default function RateChart({ source }: { source: AgentSource }) {
               <YAxis
                 yAxisId="rpm"
                 orientation="right"
-                tick={{ fill: ui.tick, fontSize: 12 }}
+                tick={{ fill: ui.tick, fontSize: 13 }}
                 tickLine={false}
                 axisLine={false}
                 allowDecimals={false}
@@ -128,7 +128,7 @@ export default function RateChart({ source }: { source: AgentSource }) {
                   backgroundColor: ui.tooltipBg,
                   border: `1px solid ${ui.tooltipBorder}`,
                   borderRadius: 8,
-                  fontSize: 12,
+                  fontSize: 13,
                 }}
                 labelStyle={{ color: ui.tooltipLabel }}
                 labelFormatter={(ms) => formatMinute(Number(ms))}

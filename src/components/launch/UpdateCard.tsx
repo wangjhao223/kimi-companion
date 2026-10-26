@@ -100,7 +100,7 @@ export default function UpdateCard() {
   return (
     <section className="min-w-0 h-full rounded-xl border border-zinc-200 bg-white px-1.5 py-2.5 shadow-[inset_0_1px_0_rgba(255,255,255,0.03)] dark:border-zinc-800/60 dark:bg-zinc-900/50">
       <div className="flex items-center justify-between">
-        <p className="text-base text-zinc-500 dark:text-zinc-400">Kimi Code 更新</p>
+        <p className="text-sm text-zinc-500 dark:text-zinc-400">Kimi Code 更新</p>
         <StatusDot tone={dotTone} busy={dotBusy} />
       </div>
       <p className="mt-1 text-base text-zinc-500">

@@ -261,44 +261,103 @@ pub fn minute_rates(conn: &Connection, minutes: u32) -> Result<Vec<MinuteRateRow
     minute_series_on(conn, "usage_events", minutes)
 }
 
-/// 指定事件表在 since_ms 以来的速度聚合：(输出 token 合计, 生成耗时合计 ms)。
-/// 加权均速 tok/s = output/duration*1000，由调用方计算；只统计 duration_ms
-/// 非空的行（历史行与配对失败的行没有耗时，不参与速度计算）。
-fn speed_avg_on(conn: &Connection, table: &str, since_ms: i64) -> Result<(i64, i64), String> {
-    conn.query_row(
-        &format!(
-            "SELECT COALESCE(SUM(output_tokens),0), COALESCE(SUM(duration_ms),0) \
-             FROM {table} WHERE ts >= ?1 AND duration_ms IS NOT NULL"
-        ),
-        [since_ms],
-        |r| Ok((r.get(0)?, r.get(1)?)),
-    )
-    .map_err(|e| format!("速度聚合查询失败: {e}"))
+/// 速度统计的数据源：四张事件表共用同一套按模型聚合 SQL。
+#[derive(Debug, Clone, Copy)]
+pub enum SpeedSource {
+    /// kimi CLI 账本（usage_events）
+    Kimi,
+    /// Windows Codex（codex_events）
+    Codex,
+    /// Windows Kimi Code 桌面端（win_kimi_events）
+    WinKimi,
+    /// WSL 侧 Codex（wsl_codex_events）
+    WslCodex,
 }
 
-/// 指定事件表最近一次带耗时的记录：(output_tokens, duration_ms)，供「当前速度」。
-fn latest_speed_on(conn: &Connection, table: &str) -> Result<Option<(i64, i64)>, String> {
-    conn.query_row(
-        &format!(
-            "SELECT output_tokens, duration_ms FROM {table} \
-             WHERE duration_ms IS NOT NULL AND duration_ms > 0 \
-             ORDER BY ts DESC LIMIT 1"
-        ),
-        [],
-        |r| Ok((r.get(0)?, r.get(1)?)),
-    )
-    .optional()
-    .map_err(|e| format!("查询最近速度记录失败: {e}"))
+impl SpeedSource {
+    fn table(self) -> &'static str {
+        match self {
+            SpeedSource::Kimi => "usage_events",
+            SpeedSource::Codex => "codex_events",
+            SpeedSource::WinKimi => "win_kimi_events",
+            SpeedSource::WslCodex => "wsl_codex_events",
+        }
+    }
 }
 
-/// usage_events 在 since_ms 以来的速度聚合。
-pub fn speed_avg(conn: &Connection, since_ms: i64) -> Result<(i64, i64), String> {
-    speed_avg_on(conn, "usage_events", since_ms)
+/// 单个模型的当前速度：与最近完成记录生成区间重叠的各会话速度之和（tok/s）。
+#[derive(Debug, Clone, PartialEq)]
+pub struct ModelSpeedRow {
+    pub model: String,
+    /// 与基准记录区间重叠的会话速度之和
+    pub speed: f64,
 }
 
-/// usage_events 最近一次带耗时的记录。
-pub fn latest_speed(conn: &Connection) -> Result<Option<(i64, i64)>, String> {
-    latest_speed_on(conn, "usage_events")
+/// 每个模型的当前速度，按基准记录时间降序（并列按模型名升序）。
+///
+/// 每条有效记录的生成区间为 `[ts - duration_ms, ts]`。每个模型以最近一条有效
+/// 记录为基准，找出区间与基准重叠的记录；同一 session_id 只取其中最新一条，
+/// 会话速度 = output_tokens * 1000.0 / duration_ms，再跨会话求和。
+/// 只统计 output_tokens > 0 且 duration_ms > 0 的有效记录。
+pub fn model_speed_stats(
+    conn: &Connection,
+    source: SpeedSource,
+) -> Result<Vec<ModelSpeedRow>, String> {
+    let mut stmt = conn
+        .prepare(&format!(
+            "WITH valid AS ( \
+                SELECT id, ts, session_id, model, output_tokens, duration_ms, \
+                       ts - duration_ms AS start_ts \
+                FROM {} \
+                WHERE output_tokens > 0 AND duration_ms IS NOT NULL AND duration_ms > 0 \
+             ), \
+             baseline AS ( \
+                SELECT model, ts AS base_ts, start_ts AS base_start \
+                FROM ( \
+                    SELECT model, ts, start_ts, \
+                           ROW_NUMBER() OVER (PARTITION BY model ORDER BY ts DESC, id DESC) AS rn \
+                    FROM valid \
+                ) \
+                WHERE rn = 1 \
+             ), \
+             overlapping AS ( \
+                SELECT v.model, v.session_id, v.ts, v.id, v.output_tokens, v.duration_ms \
+                FROM valid v \
+                JOIN baseline b ON b.model = v.model \
+                WHERE v.start_ts <= b.base_ts AND v.ts >= b.base_start \
+             ), \
+             latest_per_session AS ( \
+                SELECT model, session_id, output_tokens, duration_ms \
+                FROM ( \
+                    SELECT model, session_id, ts, id, output_tokens, duration_ms, \
+                           ROW_NUMBER() OVER ( \
+                               PARTITION BY model, session_id ORDER BY ts DESC, id DESC \
+                           ) AS rn \
+                    FROM overlapping \
+                ) \
+                WHERE rn = 1 \
+             ) \
+             SELECT s.model, SUM(s.speed) \
+             FROM ( \
+                SELECT model, session_id, output_tokens * 1000.0 / duration_ms AS speed \
+                FROM latest_per_session \
+             ) s \
+             JOIN baseline b ON b.model = s.model \
+             GROUP BY s.model, b.base_ts \
+             ORDER BY b.base_ts DESC, s.model ASC",
+            source.table()
+        ))
+        .map_err(|e| format!("预编译速度聚合失败: {e}"))?;
+    let rows = stmt
+        .query_map([], |r| {
+            Ok(ModelSpeedRow {
+                model: r.get(0)?,
+                speed: r.get(1)?,
+            })
+        })
+        .map_err(|e| format!("速度聚合查询失败: {e}"))?;
+    rows.collect::<Result<Vec<_>, _>>()
+        .map_err(|e| format!("读取速度聚合结果失败: {e}"))
 }
 
 pub fn get_meta(conn: &Connection, key: &str) -> Result<Option<String>, String> {
@@ -464,16 +523,6 @@ pub fn codex_minute_rates(conn: &Connection, minutes: u32) -> Result<Vec<MinuteR
     minute_series_on(conn, "codex_events", minutes)
 }
 
-/// codex_events 在 since_ms 以来的速度聚合。
-pub fn codex_speed_avg(conn: &Connection, since_ms: i64) -> Result<(i64, i64), String> {
-    speed_avg_on(conn, "codex_events", since_ms)
-}
-
-/// codex_events 最近一次带耗时的记录。
-pub fn codex_latest_speed(conn: &Connection) -> Result<Option<(i64, i64)>, String> {
-    latest_speed_on(conn, "codex_events")
-}
-
 // ---------- Windows Kimi Code 桌面端：win_kimi_events 的写入与聚合（与 codex_events 同构，无 agent 列） ----------
 
 /// 批量写入 win_kimi 用量记录，单事务 + INSERT OR IGNORE 幂等，返回实际插入条数。
@@ -610,16 +659,6 @@ pub fn win_kimi_trend_series(conn: &Connection, days: u32) -> Result<Vec<(String
 /// win_kimi_events 分钟速率序列，近 minutes 分钟（含当前分钟），缺口补零。
 pub fn win_kimi_minute_rates(conn: &Connection, minutes: u32) -> Result<Vec<MinuteRateRow>, String> {
     minute_series_on(conn, "win_kimi_events", minutes)
-}
-
-/// win_kimi_events 在 since_ms 以来的速度聚合。
-pub fn win_kimi_speed_avg(conn: &Connection, since_ms: i64) -> Result<(i64, i64), String> {
-    speed_avg_on(conn, "win_kimi_events", since_ms)
-}
-
-/// win_kimi_events 最近一次带耗时的记录。
-pub fn win_kimi_latest_speed(conn: &Connection) -> Result<Option<(i64, i64)>, String> {
-    latest_speed_on(conn, "win_kimi_events")
 }
 
 // ---------- WSL 侧 Codex：wsl_codex_events 的写入与聚合（与 codex_events 同构，无 agent 列） ----------
@@ -760,12 +799,203 @@ pub fn wsl_codex_minute_rates(conn: &Connection, minutes: u32) -> Result<Vec<Min
     minute_series_on(conn, "wsl_codex_events", minutes)
 }
 
-/// wsl_codex_events 在 since_ms 以来的速度聚合。
-pub fn wsl_codex_speed_avg(conn: &Connection, since_ms: i64) -> Result<(i64, i64), String> {
-    speed_avg_on(conn, "wsl_codex_events", since_ms)
-}
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::database::migrations;
+    use rusqlite::params;
 
-/// wsl_codex_events 最近一次带耗时的记录。
-pub fn wsl_codex_latest_speed(conn: &Connection) -> Result<Option<(i64, i64)>, String> {
-    latest_speed_on(conn, "wsl_codex_events")
+    fn test_conn() -> Connection {
+        let conn = Connection::open_in_memory().expect("打开内存数据库失败");
+        migrations::run(&conn).expect("初始化表结构失败");
+        conn
+    }
+
+    /// 直接插入一条最小事件记录；ts/session_id/model/token 组合需满足唯一约束。
+    fn insert_event(
+        conn: &Connection,
+        table: &str,
+        session_id: &str,
+        ts: i64,
+        model: &str,
+        output: i64,
+        duration: Option<i64>,
+    ) {
+        conn.execute(
+            &format!(
+                "INSERT INTO {table} (ts, session_id, model, output_tokens, duration_ms) \
+                 VALUES (?1, ?2, ?3, ?4, ?5)"
+            ),
+            params![ts, session_id, model, output, duration],
+        )
+        .expect("插入测试记录失败");
+    }
+
+    /// 两个会话的生成区间都覆盖基准区间，速度按会话相加。
+    #[test]
+    fn overlapping_sessions_are_summed() {
+        let conn = test_conn();
+        let table = "usage_events";
+        // s1: [0,1000] → 250/2000 = 125 tok/s
+        insert_event(&conn, table, "s1", 1_000, "m", 250, Some(2_000));
+        // s2: [500,1500] 为基准 → 450/3000 = 150 tok/s
+        insert_event(&conn, table, "s2", 1_500, "m", 450, Some(3_000));
+
+        let rows = model_speed_stats(&conn, SpeedSource::Kimi).expect("速度聚合失败");
+        assert_eq!(
+            rows,
+            vec![ModelSpeedRow {
+                model: "m".to_string(),
+                speed: 275.0,
+            }]
+        );
+    }
+
+    /// 与基准区间不重叠的历史记录不累加，只返回基准会话自身的速度。
+    #[test]
+    fn non_overlapping_history_is_not_summed() {
+        let conn = test_conn();
+        let table = "usage_events";
+        // s1: [0,1000]
+        insert_event(&conn, table, "s1", 1_000, "m", 100, Some(1_000));
+        // s2: [4000,5000] 为基准，与 s1 无重叠 → 500 tok/s
+        insert_event(&conn, table, "s2", 5_000, "m", 500, Some(1_000));
+
+        let rows = model_speed_stats(&conn, SpeedSource::Kimi).expect("速度聚合失败");
+        assert_eq!(
+            rows,
+            vec![ModelSpeedRow {
+                model: "m".to_string(),
+                speed: 500.0,
+            }]
+        );
+    }
+
+    /// 同一会话有多条记录与基准重叠时只取最新一条，不能重复叠加。
+    #[test]
+    fn same_session_takes_only_latest_overlapping_record() {
+        let conn = test_conn();
+        let table = "usage_events";
+        // s1: [0,1000] → 100 tok/s
+        insert_event(&conn, table, "s1", 1_000, "m", 100, Some(1_000));
+        // s1: [800,1800] 为基准且与上一条重叠 → 300 tok/s，只取这一条
+        insert_event(&conn, table, "s1", 1_800, "m", 300, Some(1_000));
+
+        let rows = model_speed_stats(&conn, SpeedSource::Kimi).expect("速度聚合失败");
+        assert_eq!(
+            rows,
+            vec![ModelSpeedRow {
+                model: "m".to_string(),
+                speed: 300.0,
+            }]
+        );
+    }
+
+    /// 不同模型互不叠加；按基准记录时间降序，并列时按模型名升序。
+    #[test]
+    fn models_are_isolated_and_sorted_by_recent_baseline() {
+        let conn = test_conn();
+        let table = "usage_events";
+        // a: s1 [0,1000] 100 tok/s + s2 [200,1200] 200 tok/s = 300 tok/s
+        insert_event(&conn, table, "a1", 1_000, "a-model", 100, Some(1_000));
+        insert_event(&conn, table, "a2", 1_200, "a-model", 200, Some(1_000));
+        // b/c 的基准都在 3000，按模型名升序排，且不混入 a 的速度。
+        insert_event(&conn, table, "b1", 3_000, "b-model", 50, Some(500));
+        insert_event(&conn, table, "c1", 3_000, "c-model", 60, Some(500));
+
+        let rows = model_speed_stats(&conn, SpeedSource::Kimi).expect("速度聚合失败");
+        assert_eq!(
+            rows,
+            vec![
+                ModelSpeedRow {
+                    model: "b-model".to_string(),
+                    speed: 100.0,
+                },
+                ModelSpeedRow {
+                    model: "c-model".to_string(),
+                    speed: 120.0,
+                },
+                ModelSpeedRow {
+                    model: "a-model".to_string(),
+                    speed: 300.0,
+                },
+            ]
+        );
+    }
+
+    /// 零输出 / 零耗时 / NULL 耗时的记录不参与基准选取、重叠计算，也不单独产生模型行。
+    #[test]
+    fn invalid_records_are_ignored() {
+        let conn = test_conn();
+        let table = "usage_events";
+        insert_event(&conn, table, "s1", 1_000, "m", 100, Some(1_000));
+        insert_event(&conn, table, "s2", 2_000, "m", 0, Some(1_000));
+        insert_event(&conn, table, "s3", 3_000, "m", 500, Some(0));
+        insert_event(&conn, table, "s4", 4_000, "m", 700, None);
+        insert_event(&conn, table, "s5", 5_000, "m", 900, None);
+        insert_event(&conn, table, "g1", 6_000, "ghost", 900, None);
+        insert_event(&conn, table, "g2", 7_000, "ghost", 0, Some(0));
+
+        let rows = model_speed_stats(&conn, SpeedSource::Kimi).expect("速度聚合失败");
+        // 无效记录都在有效记录之后；若被计入，基准会变成无效行或速度失真。
+        assert_eq!(
+            rows,
+            vec![ModelSpeedRow {
+                model: "m".to_string(),
+                speed: 100.0,
+            }]
+        );
+    }
+
+    /// 四张事件表经同一函数聚合，重叠相加、排序与过滤行为完全一致。
+    #[test]
+    fn all_sources_use_same_logic() {
+        let conn = test_conn();
+        for (source, table) in [
+            (SpeedSource::Kimi, "usage_events"),
+            (SpeedSource::Codex, "codex_events"),
+            (SpeedSource::WinKimi, "win_kimi_events"),
+            (SpeedSource::WslCodex, "wsl_codex_events"),
+        ] {
+            insert_event(&conn, table, "m1", 1_000, "m", 100, Some(1_000));
+            insert_event(&conn, table, "m2", 1_500, "m", 200, Some(1_000));
+            insert_event(&conn, table, "n1", 1_200, "n", 50, Some(500));
+            let rows = model_speed_stats(&conn, source).expect("速度聚合失败");
+            // m 的基准在 1500、两会话重叠合计 300；n 的基准在 1200 → 100。
+            assert_eq!(
+                rows,
+                vec![
+                    ModelSpeedRow {
+                        model: "m".to_string(),
+                        speed: 300.0,
+                    },
+                    ModelSpeedRow {
+                        model: "n".to_string(),
+                        speed: 100.0,
+                    },
+                ],
+                "{table}"
+            );
+        }
+    }
+
+    /// 没有有效记录时返回空列表（不生成无速度的模型行）。
+    #[test]
+    fn empty_source_returns_no_models() {
+        let conn = test_conn();
+        assert!(model_speed_stats(&conn, SpeedSource::Kimi)
+            .expect("速度聚合失败")
+            .is_empty());
+    }
+
+    /// 空模型名原样返回空串，由前端回退显示为「未知模型」。
+    #[test]
+    fn empty_model_name_is_kept() {
+        let conn = test_conn();
+        insert_event(&conn, "usage_events", "s1", 1_000, "", 10, Some(1_000));
+        let rows = model_speed_stats(&conn, SpeedSource::Kimi).expect("速度聚合失败");
+        assert_eq!(rows.len(), 1);
+        assert_eq!(rows[0].model, "");
+        assert_eq!(rows[0].speed, 10.0);
+    }
 }

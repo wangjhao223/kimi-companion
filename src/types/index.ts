@@ -63,14 +63,18 @@ export interface RatePoint {
   tokens: number;
 }
 
-/** 输出速度统计（tok/s，加权均速 = Σoutput/Σduration，只统计带耗时的记录）。 */
+/** 单个模型的输出速度统计（tok/s）：同模型并行会话的生成速度按时间重叠叠加。
+ *  仅统计 output_tokens>0 且 duration_ms>0 的有效记录。 */
+export interface ModelSpeedStats {
+  /** 模型名；空串表示未知模型，由前端回退显示 */
+  model: string;
+  /** 当前叠加速度（tok/s）：与基准记录生成区间重叠的各会话速度之和（每个会话只取其最新一条重叠记录） */
+  current_speed: number;
+}
+
+/** 输出速度统计（每个模型一条，models 按基准记录 ts 降序、并列按模型名排序）。 */
 export interface SpeedStats {
-  /** 最近一次带耗时记录的瞬时速度 */
-  latest_speed: number | null;
-  /** 近 1 小时加权均速 */
-  hour_avg_speed: number | null;
-  /** 今日（本地时区）加权均速 */
-  today_avg_speed: number | null;
+  models: ModelSpeedStats[];
 }
 
 /** kimi CLI 更新检查结果（check_kimi_cli_update）。 */

@@ -14,7 +14,12 @@ const TABS: { key: Tab; label: string }[] = [
   { key: "windows", label: "windows" },
 ];
 
-const UNITS: Unit[] = ["k", "M", "B"];
+const UNITS: { key: Unit; label: string }[] = [
+  { key: "k", label: "k" },
+  { key: "M", label: "M" },
+  { key: "B", label: "B" },
+  { key: "auto", label: "自适应" },
+];
 
 const THEME_OPTIONS: { key: ThemeMode; label: string }[] = [
   { key: "light", label: "亮" },
@@ -87,15 +92,15 @@ function Shell() {
             <div className="flex rounded-md border border-zinc-200 bg-white p-0.5 dark:border-zinc-800 dark:bg-zinc-900/50">
               {UNITS.map((u) => (
                 <button
-                  key={u}
+                  key={u.key}
                   className={`rounded px-1.5 py-0.5 text-xs font-mono transition-colors ${
-                    unit === u
+                    unit === u.key
                       ? "bg-emerald-600 text-white"
                       : "text-zinc-500 hover:text-zinc-800 dark:text-zinc-400 dark:hover:text-zinc-200"
                   }`}
-                  onClick={() => setUnit(u)}
+                  onClick={() => setUnit(u.key)}
                 >
-                  {u}
+                  {u.label}
                 </button>
               ))}
             </div>

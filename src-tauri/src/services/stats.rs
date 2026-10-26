@@ -4,7 +4,8 @@
 
 use crate::database::{dao, Database};
 use crate::models::{
-    HeatmapDay, ModelUsage, PeriodUsage, RatePoint, SpeedStats, StatsSummary, TrendPoint,
+    HeatmapDay, ModelSpeedStats, ModelUsage, PeriodUsage, RatePoint, SpeedStats, StatsSummary,
+    TrendPoint,
 };
 
 pub const HEATMAP_DEFAULT_DAYS: u32 = 365;
@@ -21,34 +22,24 @@ fn to_rate_points(rows: Vec<dao::MinuteRateRow>) -> Vec<RatePoint> {
         .collect()
 }
 
-/// 输出速度统计的公共装配（四个数据源共用）：当前瞬时速度 + 近 1 小时 / 今日加权均速。
-/// 加权均速 = Σoutput/Σduration（只统计带耗时的记录），无数据为 None。
-fn speed_stats(
-    db: &Database,
-    latest_fn: fn(&rusqlite::Connection) -> Result<Option<(i64, i64)>, String>,
-    avg_fn: fn(&rusqlite::Connection, i64) -> Result<(i64, i64), String>,
-) -> Result<SpeedStats, String> {
+/// 输出速度统计的公共装配（四个数据源共用）：每个模型以最近完成记录为基准，
+/// 生成区间重叠的会话速度跨会话求和；记录之间的空闲时间不进入分母。
+fn speed_stats(db: &Database, source: dao::SpeedSource) -> Result<SpeedStats, String> {
     db.with_conn(|conn| {
-        let (today_start, _, _) = dao::local_period_bounds(conn)?;
-        let now_ms: i64 = conn
-            .query_row("SELECT CAST(strftime('%s','now') AS INTEGER) * 1000", [], |r| {
-                r.get(0)
-            })
-            .map_err(|e| format!("读取当前时间失败: {e}"))?;
-        let to_speed = |agg: (i64, i64)| {
-            let (out, dur) = agg;
-            if dur > 0 {
-                Some(out as f64 / dur as f64 * 1000.0)
-            } else {
-                None
-            }
-        };
         Ok(SpeedStats {
-            latest_speed: latest_fn(conn)?.and_then(|agg| to_speed(agg)),
-            hour_avg_speed: to_speed(avg_fn(conn, now_ms - 3_600_000)?),
-            today_avg_speed: to_speed(avg_fn(conn, today_start)?),
+            models: dao::model_speed_stats(conn, source)?
+                .into_iter()
+                .map(to_model_speed)
+                .collect(),
         })
     })
+}
+
+fn to_model_speed(row: dao::ModelSpeedRow) -> ModelSpeedStats {
+    ModelSpeedStats {
+        model: row.model,
+        current_speed: row.speed,
+    }
 }
 
 fn to_period(sums: dao::UsageSums) -> PeriodUsage {
@@ -129,9 +120,10 @@ pub fn get_rates(db: &Database, minutes: Option<u32>) -> Result<Vec<RatePoint>, 
     db.with_conn(|conn| Ok(to_rate_points(dao::minute_rates(conn, minutes)?)))
 }
 
-/// 输出速度：当前瞬时速度 + 近 1 小时 / 今日加权均速（tok/s）。
+/// 输出速度：以每个模型最近完成记录为基准，生成区间重叠的会话速度求和，
+/// 最近使用的模型排最前（tok/s）。
 pub fn get_speed(db: &Database) -> Result<SpeedStats, String> {
-    speed_stats(db, dao::latest_speed, dao::speed_avg)
+    speed_stats(db, dao::SpeedSource::Kimi)
 }
 
 // ---------- Codex 侧聚合（数据源 codex_events，结构与 kimi 侧一致） ----------
@@ -193,9 +185,10 @@ pub fn get_codex_rates(db: &Database, minutes: Option<u32>) -> Result<Vec<RatePo
     db.with_conn(|conn| Ok(to_rate_points(dao::codex_minute_rates(conn, minutes)?)))
 }
 
-/// Codex 输出速度：当前瞬时速度 + 近 1 小时 / 今日加权均速（tok/s）。
+/// Codex 输出速度：以每个模型最近完成记录为基准，生成区间重叠的会话速度求和，
+/// 最近使用的模型排最前（tok/s）。
 pub fn get_codex_speed(db: &Database) -> Result<SpeedStats, String> {
-    speed_stats(db, dao::codex_latest_speed, dao::codex_speed_avg)
+    speed_stats(db, dao::SpeedSource::Codex)
 }
 
 // ---------- Windows Kimi Code 桌面端聚合（数据源 win_kimi_events，结构与 codex 侧一致） ----------
@@ -257,9 +250,10 @@ pub fn get_win_kimi_rates(db: &Database, minutes: Option<u32>) -> Result<Vec<Rat
     db.with_conn(|conn| Ok(to_rate_points(dao::win_kimi_minute_rates(conn, minutes)?)))
 }
 
-/// Win Kimi 输出速度：当前瞬时速度 + 近 1 小时 / 今日加权均速（tok/s）。
+/// Win Kimi 输出速度：以每个模型最近完成记录为基准，生成区间重叠的会话速度求和，
+/// 最近使用的模型排最前（tok/s）。
 pub fn get_win_kimi_speed(db: &Database) -> Result<SpeedStats, String> {
-    speed_stats(db, dao::win_kimi_latest_speed, dao::win_kimi_speed_avg)
+    speed_stats(db, dao::SpeedSource::WinKimi)
 }
 
 // ---------- WSL 侧 Codex 聚合（数据源 wsl_codex_events，结构与 codex 侧一致） ----------
@@ -321,7 +315,31 @@ pub fn get_wsl_codex_rates(db: &Database, minutes: Option<u32>) -> Result<Vec<Ra
     db.with_conn(|conn| Ok(to_rate_points(dao::wsl_codex_minute_rates(conn, minutes)?)))
 }
 
-/// WSL Codex 输出速度：当前瞬时速度 + 近 1 小时 / 今日加权均速（tok/s）。
+/// WSL Codex 输出速度：以每个模型最近完成记录为基准，生成区间重叠的会话速度求和，
+/// 最近使用的模型排最前（tok/s）。
 pub fn get_wsl_codex_speed(db: &Database) -> Result<SpeedStats, String> {
-    speed_stats(db, dao::wsl_codex_latest_speed, dao::wsl_codex_speed_avg)
+    speed_stats(db, dao::SpeedSource::WslCodex)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn assert_speed(actual: f64, expected: f64) {
+        assert!(
+            (actual - expected).abs() < 1e-9,
+            "期望 {expected} tok/s，实际 {actual}"
+        );
+    }
+
+    /// DAO 已完成重叠会话求和，装配层原样透传 tok/s 与模型名。
+    #[test]
+    fn maps_dao_speed_to_current_speed() {
+        let stats = to_model_speed(dao::ModelSpeedRow {
+            model: "deepseek/deepseek-flash".to_string(),
+            speed: 275.0,
+        });
+        assert_eq!(stats.model, "deepseek/deepseek-flash");
+        assert_speed(stats.current_speed, 275.0);
+    }
 }

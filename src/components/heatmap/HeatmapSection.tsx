@@ -121,14 +121,14 @@ export default function HeatmapSection({ source }: { source: AgentSource }) {
 
       <section className="min-w-0 rounded-xl border border-zinc-200 bg-white px-1.5 py-2.5 shadow-[inset_0_1px_0_rgba(255,255,255,0.03)] dark:border-zinc-800/60 dark:bg-zinc-900/50">
         <div className="mb-1.5 flex flex-wrap items-center justify-between gap-x-1 gap-y-2.5">
-          <p className="text-base text-zinc-500 dark:text-zinc-400">
+          <p className="text-sm text-zinc-500 dark:text-zinc-400">
             近一年每天的 token 用量（本地时区）
           </p>
           <div className="flex rounded-lg border border-zinc-300 p-0.5 dark:border-zinc-800">
             {(Object.keys(DIMENSION_LABELS) as Dimension[]).map((d) => (
               <button
                 key={d}
-                className={`rounded-md px-1.5 py-1 text-base ${
+                className={`rounded-md px-1.5 py-1 text-sm ${
                   dim === d
                     ? "bg-emerald-600 text-white"
                     : "text-zinc-500 hover:text-zinc-800 dark:text-zinc-400 dark:hover:text-zinc-200"
@@ -191,14 +191,14 @@ export default function HeatmapSection({ source }: { source: AgentSource }) {
           </div>
         )}
 
-        <div className="mt-1.5 flex items-center justify-end gap-1.5 text-sm text-zinc-500">
+        <div className="mt-1.5 flex flex-wrap items-center justify-end gap-1.5 text-sm text-zinc-500">
           <span>少</span>
           {levelColors.map((c) => (
             <span key={c} className={`h-3 w-3 rounded-[2px] ${c}`} />
           ))}
           <span>多</span>
           {maxValue > 0 && (
-            <span className="ml-3 text-zinc-400 dark:text-zinc-600">
+            <span className="ml-3 text-base text-zinc-400 dark:text-zinc-600">
               最高单日 {formatTokens(maxValue, unit)}（{DIMENSION_LABELS[dim]}）
             </span>
           )}

@@ -93,15 +93,20 @@ pub struct RatePoint {
     pub tokens: i64,
 }
 
-/// 输出速度统计（tok/s，加权均速 = Σoutput/Σduration，只统计带耗时的记录）。
+/// 单个模型的输出速度统计：最近生成区间内重叠会话的速度之和（tok/s）。
+#[derive(Debug, Clone, Serialize)]
+pub struct ModelSpeedStats {
+    /// 模型名；空串表示未知模型，由前端回退显示
+    pub model: String,
+    /// 当前速度：与最近完成记录生成区间重叠的各会话速度之和
+    pub current_speed: f64,
+}
+
+/// 输出速度统计（每个模型一行，跨会话重叠速度已求和）。
 #[derive(Debug, Clone, Serialize)]
 pub struct SpeedStats {
-    /// 最近一次带耗时记录的瞬时速度
-    pub latest_speed: Option<f64>,
-    /// 近 1 小时加权均速
-    pub hour_avg_speed: Option<f64>,
-    /// 今日（本地时区）加权均速
-    pub today_avg_speed: Option<f64>,
+    /// 按每个模型基准记录时间降序（并列按模型名升序）排列
+    pub models: Vec<ModelSpeedStats>,
 }
 
 /// 账本同步状态（内存快照 + 实时总数），供「账本同步」展示。
@@ -179,4 +184,46 @@ pub struct UpdateResult {
     /// 更新后是否自动重启了 kimi web
     pub restarted_web: bool,
     pub new_version: Option<String>,
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// IPC 契约：models 数组内恰好只有 model/current_speed，字段保持 snake_case。
+    #[test]
+    fn speed_stats_serializes_exact_model_and_current_speed_contract() {
+        let stats = SpeedStats {
+            models: vec![
+                ModelSpeedStats {
+                    model: "kimi-k2".to_string(),
+                    current_speed: 12.5,
+                },
+                ModelSpeedStats {
+                    model: "deepseek/deepseek-flash".to_string(),
+                    current_speed: 42.0,
+                },
+            ],
+        };
+        let value = serde_json::to_value(&stats).expect("序列化 SpeedStats 失败");
+        let root = value.as_object().expect("SpeedStats 应序列化为对象");
+        assert_eq!(root.len(), 1, "顶层只能含 models");
+        let models = value["models"].as_array().expect("models 应为数组");
+        assert_eq!(models.len(), 2);
+
+        for model in models {
+            let object = model.as_object().expect("模型项应为对象");
+            assert_eq!(object.len(), 2, "模型项只能含 model/current_speed");
+            assert!(object.contains_key("model"));
+            assert!(object.get("current_speed").is_some_and(|v| v.is_f64()));
+            assert!(!object.contains_key("latest_speed"));
+        }
+        assert_eq!(models[0]["model"].as_str(), Some("kimi-k2"));
+        assert_eq!(models[0]["current_speed"].as_f64(), Some(12.5));
+        assert_eq!(
+            models[1]["model"].as_str(),
+            Some("deepseek/deepseek-flash")
+        );
+        assert_eq!(models[1]["current_speed"].as_f64(), Some(42.0));
+    }
 }

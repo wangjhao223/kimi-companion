@@ -52,7 +52,8 @@ pub async fn get_win_kimi_rates(
         .map_err(|e| format!("任务执行失败: {e}"))?
 }
 
-/// Win Kimi 输出速度：当前瞬时速度 + 近 1 小时 / 今日加权均速（tok/s）。
+/// Win Kimi 输出速度：以每个模型最近完成记录为基准，生成区间重叠的会话速度求和，
+/// 最近使用的模型排最前（tok/s）。
 #[tauri::command]
 pub async fn get_win_kimi_speed(db: State<'_, Database>) -> Result<SpeedStats, String> {
     let db = db.inner().clone();

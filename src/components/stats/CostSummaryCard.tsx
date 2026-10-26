@@ -27,18 +27,18 @@ export default function CostSummaryCard({ summary }: { summary?: StatsSummary })
 
   return (
     <section className="min-w-0 h-full rounded-xl border border-zinc-200 bg-white px-1.5 py-2.5 shadow-[inset_0_1px_0_rgba(255,255,255,0.03)] dark:border-zinc-800/60 dark:bg-zinc-900/50">
-      <p className="text-base text-zinc-500">费用估算</p>
-      <p className="mt-0.5 font-mono text-xl font-semibold text-emerald-600 dark:text-emerald-300">
+      <p className="text-sm text-zinc-500">费用估算</p>
+      <p className="mt-0.5 break-all font-mono text-2xl font-semibold text-emerald-600 dark:text-emerald-300">
         {models.length === 0 ? "—" : formatCost(costOf(summary?.by_model))}
       </p>
       <div className="mt-1.5 space-y-0.5 border-t border-zinc-200 pt-1.5 dark:border-zinc-800/60">
         {periods.map((p) => (
           <div
             key={p.label}
-            className="flex items-baseline justify-between text-sm"
+            className="flex items-baseline justify-between gap-1 text-base"
           >
-            <span className="text-zinc-500">{p.label}</span>
-            <span className="font-mono text-zinc-700 dark:text-zinc-300">
+            <span className="shrink-0 text-zinc-500">{p.label}</span>
+            <span className="min-w-0 break-all text-right font-mono text-zinc-700 dark:text-zinc-300">
               {formatCost(costOf(p.list))}
             </span>
           </div>

@@ -185,7 +185,7 @@ export default function LaunchPanel() {
         <section className="min-w-0 rounded-xl border border-amber-300 bg-amber-50 px-1.5 py-2 dark:border-amber-900/60 dark:bg-amber-950/40">
           <div className="flex items-center justify-between gap-3">
             <div>
-              <p className="text-base font-medium text-amber-700 dark:text-amber-200">
+              <p className="text-sm font-medium text-amber-700 dark:text-amber-200">
                 记账 hook 未安装
               </p>
               <p className="mt-0.5 text-base text-amber-600/70 dark:text-amber-300/70">
@@ -223,7 +223,7 @@ export default function LaunchPanel() {
 
       <section className="min-w-0 flex-1 rounded-xl border border-zinc-200 bg-white px-1.5 py-2.5 shadow-[inset_0_1px_0_rgba(255,255,255,0.03)] dark:border-zinc-800/60 dark:bg-zinc-900/50">
         <div className="mb-1 flex items-center justify-between">
-          <label className="text-base text-zinc-500 dark:text-zinc-400">WSL 发行版</label>
+          <label className="text-sm text-zinc-500 dark:text-zinc-400">WSL 发行版</label>
           <select
             className="rounded-md border border-zinc-300 bg-white px-1.5 py-1 text-base outline-none focus:border-zinc-400 dark:border-zinc-700 dark:bg-zinc-800 dark:focus:border-zinc-500"
             value={distro ?? ""}
@@ -331,7 +331,7 @@ export default function LaunchPanel() {
         <div className="flex items-center justify-between gap-2">
           <div className="flex items-center gap-3">
             <StatusDot ok={rcEnabled} busy={rcMutation.isPending} />
-            <span className="text-base text-zinc-700 dark:text-zinc-300">
+            <span className="text-sm text-zinc-700 dark:text-zinc-300">
               远程控制
             </span>
           </div>
@@ -401,7 +401,7 @@ export default function LaunchPanel() {
             className="w-full max-w-xs rounded-xl bg-white p-4 shadow-xl dark:bg-zinc-900"
             onClick={(e) => e.stopPropagation()}
           >
-            <p className="text-base font-medium text-zinc-700 dark:text-zinc-200">
+            <p className="text-sm font-medium text-zinc-700 dark:text-zinc-200">
               扫码远程控制
             </p>
             {qrcodeQuery.isLoading ? (

@@ -48,7 +48,7 @@ export default function TrendChart({ source }: { source: AgentSource }) {
   return (
     <section className="min-w-0 h-full rounded-xl border border-zinc-200 bg-white px-1.5 py-2.5 shadow-[inset_0_1px_0_rgba(255,255,255,0.03)] dark:border-zinc-800/60 dark:bg-zinc-900/50">
       <div className="mb-1.5 flex items-center justify-between">
-        <p className="text-base text-zinc-500 dark:text-zinc-400">近 30 天趋势</p>
+        <p className="text-sm text-zinc-500 dark:text-zinc-400">近 30 天趋势</p>
         <div className="flex gap-4 text-sm text-zinc-500">
           <span className="flex items-center gap-1.5">
             <span className="h-2 w-2 rounded-full bg-emerald-400" /> 输入
@@ -70,14 +70,14 @@ export default function TrendChart({ source }: { source: AgentSource }) {
               <CartesianGrid stroke={ui.grid} strokeDasharray="3 3" vertical={false} />
               <XAxis
                 dataKey="date"
-                tick={{ fill: ui.tick, fontSize: 12 }}
+                tick={{ fill: ui.tick, fontSize: 13 }}
                 tickFormatter={(d: string) => d.slice(5)}
                 tickLine={false}
                 axisLine={{ stroke: ui.axis }}
                 minTickGap={24}
               />
               <YAxis
-                tick={{ fill: ui.tick, fontSize: 12 }}
+                tick={{ fill: ui.tick, fontSize: 13 }}
                 tickFormatter={(v: number) => formatTokens(v, unit)}
                 tickLine={false}
                 axisLine={false}
@@ -88,7 +88,7 @@ export default function TrendChart({ source }: { source: AgentSource }) {
                   backgroundColor: ui.tooltipBg,
                   border: `1px solid ${ui.tooltipBorder}`,
                   borderRadius: 8,
-                  fontSize: 12,
+                  fontSize: 13,
                 }}
                 labelStyle={{ color: ui.tooltipLabel }}
                 formatter={(value, name) => [

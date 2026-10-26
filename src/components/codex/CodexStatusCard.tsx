@@ -42,7 +42,7 @@ export default function CodexStatusCard({ source }: { source: CodexSource }) {
 
   return (
     <section className="min-w-0 h-full rounded-xl border border-zinc-200 bg-white px-1.5 py-2.5 shadow-[inset_0_1px_0_rgba(255,255,255,0.03)] dark:border-zinc-800/60 dark:bg-zinc-900/50">
-      <p className="text-base text-zinc-500 dark:text-zinc-400">{config.title}</p>
+      <p className="text-sm text-zinc-500 dark:text-zinc-400">{config.title}</p>
       <div className="mt-1.5 space-y-1.5">
         <div>
           <p className="text-sm text-zinc-500">数据目录</p>
