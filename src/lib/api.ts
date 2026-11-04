@@ -93,6 +93,13 @@ export function getStatsSpeed(): Promise<SpeedStats> {
   return invoke<SpeedStats>("get_stats_speed");
 }
 
+/** 当前 provider 配置里可选的模型名（`provider/model`，已去 managed: 前缀、去重排序）。
+ *  source=kimi 时必须传 distro；source=kimi-win 读取 Windows 本地配置；
+ *  Codex 没有模型清单，后端会报错，前端不要调用。 */
+export function getAvailableModels(source: string, distro?: string): Promise<string[]> {
+  return invoke<string[]>("get_available_models", { source, distro: distro ?? null });
+}
+
 // ---------- Codex 侧（Windows 本地 rollout 导入的统计） ----------
 
 export function getCodexSummary(): Promise<StatsSummary> {

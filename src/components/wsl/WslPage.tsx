@@ -89,7 +89,7 @@ export default function WslPage() {
               <LaunchPanel />
             </div>
             <div className="min-w-0 col-span-2">
-              <SummaryCards summary={summary} source="kimi" />
+              <SummaryCards summary={summary} source="kimi" distro={distro} />
             </div>
           </div>
           <div className="mt-2 grid grid-cols-3 items-stretch gap-x-1 gap-y-2">
@@ -97,7 +97,7 @@ export default function WslPage() {
               <RateChart source="kimi" />
             </div>
             <div className="min-w-0 col-span-1">
-              <CostSummaryCard summary={summary} />
+              <CostSummaryCard summary={summary} source="kimi" distro={distro} />
             </div>
           </div>
           <div className="mt-2 grid grid-cols-3 items-stretch gap-x-1 gap-y-2">
@@ -113,7 +113,7 @@ export default function WslPage() {
             <TrendChart source="kimi" />
           </div>
           <div className="min-w-0 md:col-span-2 md:row-span-2">
-            <CostCard summary={summary} />
+            <CostCard summary={summary} source="kimi" distro={distro} />
           </div>
           <div className="min-w-0 md:col-span-1">
             <UpdateCard />
@@ -151,7 +151,7 @@ export default function WslPage() {
                   <RateChart source="wsl-codex" />
                 </div>
                 <div className="min-w-0 col-span-1">
-                  <CostSummaryCard summary={codexSummary} />
+                  <CostSummaryCard summary={codexSummary} source="wsl-codex" />
                 </div>
               </div>
               <div className="mt-2 grid grid-cols-3 items-stretch gap-x-1 gap-y-2">
@@ -167,7 +167,7 @@ export default function WslPage() {
                   <TrendChart source="wsl-codex" />
                 </div>
                 <div className="min-w-0 md:col-span-2 md:row-span-2">
-                  <CostCard summary={codexSummary} />
+                  <CostCard summary={codexSummary} source="wsl-codex" />
                 </div>
                 <div className="min-w-0 md:col-span-1 md:row-span-2">
                   <ModelShareBar summary={codexSummary} />

@@ -62,6 +62,7 @@ pub fn run() {
             commands::stats::get_stats_trend,
             commands::stats::get_stats_rates,
             commands::stats::get_stats_speed,
+            commands::stats::get_available_models,
             commands::codex::get_codex_summary,
             commands::codex::get_codex_heatmap,
             commands::codex::get_codex_trend,

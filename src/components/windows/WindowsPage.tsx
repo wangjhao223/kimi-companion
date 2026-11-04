@@ -76,7 +76,7 @@ export default function WindowsPage() {
               <RateChart source="kimi-win" />
             </div>
             <div className="min-w-0 col-span-1">
-              <CostSummaryCard summary={summary} />
+              <CostSummaryCard summary={summary} source="kimi-win" />
             </div>
           </div>
           <div className="mt-2 grid grid-cols-3 items-stretch gap-x-1 gap-y-2">
@@ -92,7 +92,7 @@ export default function WindowsPage() {
               <TrendChart source="kimi-win" />
             </div>
             <div className="min-w-0 md:col-span-2 md:row-span-2">
-              <CostCard summary={summary} />
+              <CostCard summary={summary} source="kimi-win" />
             </div>
             <div className="min-w-0 md:col-span-1 md:row-span-2">
               <ModelShareBar summary={summary} />
@@ -117,7 +117,7 @@ export default function WindowsPage() {
                   <RateChart source="codex" />
                 </div>
                 <div className="min-w-0 col-span-1">
-                  <CostSummaryCard summary={codexSummary} />
+                  <CostSummaryCard summary={codexSummary} source="codex" />
                 </div>
               </div>
               <div className="mt-2 grid grid-cols-3 items-stretch gap-x-1 gap-y-2">
@@ -133,7 +133,7 @@ export default function WindowsPage() {
                   <TrendChart source="codex" />
                 </div>
                 <div className="min-w-0 md:col-span-2 md:row-span-2">
-                  <CostCard summary={codexSummary} />
+                  <CostCard summary={codexSummary} source="codex" />
                 </div>
                 <div className="min-w-0 md:col-span-1 md:row-span-2">
                   <ModelShareBar summary={codexSummary} />

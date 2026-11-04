@@ -4,6 +4,7 @@ pub mod hook;
 pub mod http;
 pub mod launcher;
 pub mod ledger;
+pub mod model_catalog;
 pub mod stats;
 pub mod upgrade;
 pub mod win_kimi;

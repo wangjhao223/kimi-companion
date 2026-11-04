@@ -1,11 +1,11 @@
-//! IPC 命令层：统计聚合。与 launcher/ledger 命令同一模式：
+//! IPC 命令层：统计聚合与模型清单。与 launcher/ledger 命令同一模式：
 //! 耗时操作放进 spawn_blocking，错误以 String 返回前端。
 
 use tauri::State;
 
 use crate::database::Database;
 use crate::models::{HeatmapDay, RatePoint, SpeedStats, StatsSummary, TrendPoint};
-use crate::services::stats;
+use crate::services::{model_catalog, stats};
 
 #[tauri::command]
 pub async fn get_stats_summary(db: State<'_, Database>) -> Result<StatsSummary, String> {
@@ -57,4 +57,18 @@ pub async fn get_stats_speed(db: State<'_, Database>) -> Result<SpeedStats, Stri
     tauri::async_runtime::spawn_blocking(move || stats::get_speed(&db))
         .await
         .map_err(|e| format!("任务执行失败: {e}"))?
+}
+
+/// 可用模型清单：source=kimi 走 WSL（必须带 distro），source=kimi-win 走 Windows
+/// 原生 kimi CLI；只返回模型名。Codex 没有 provider 清单，前端不调用。
+#[tauri::command]
+pub async fn get_available_models(
+    source: String,
+    distro: Option<String>,
+) -> Result<Vec<String>, String> {
+    tauri::async_runtime::spawn_blocking(move || {
+        model_catalog::get_available_models(&source, distro.as_deref())
+    })
+    .await
+    .map_err(|e| format!("任务执行失败: {e}"))?
 }
