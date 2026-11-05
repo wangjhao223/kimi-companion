@@ -1,4 +1,5 @@
 pub mod codex;
+pub mod cost;
 pub mod desktop;
 pub mod hook;
 pub mod http;

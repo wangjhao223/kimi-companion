@@ -3,9 +3,13 @@
 
 use tauri::State;
 
-use crate::database::Database;
-use crate::models::{HeatmapDay, RatePoint, SpeedStats, StatsSummary, TrendPoint};
-use crate::services::{model_catalog, stats};
+use crate::database::{dao, Database};
+use std::collections::HashMap;
+
+use crate::models::{
+    HeatmapDay, ModelCost, ModelPricing, RatePoint, SpeedStats, StatsSummary, TrendPoint,
+};
+use crate::services::{cost, model_catalog, stats};
 
 #[tauri::command]
 pub async fn get_stats_summary(db: State<'_, Database>) -> Result<StatsSummary, String> {
@@ -59,8 +63,8 @@ pub async fn get_stats_speed(db: State<'_, Database>) -> Result<SpeedStats, Stri
         .map_err(|e| format!("任务执行失败: {e}"))?
 }
 
-/// 可用模型清单：source=kimi 走 WSL（必须带 distro），source=kimi-win 走 Windows
-/// 原生 kimi CLI；只返回模型名。Codex 没有 provider 清单，前端不调用。
+/// 可用模型清单：source=kimi 走 WSL（必须带 distro），source=kimi-win 直接读取
+/// Windows Kimi Code 的活动 config.toml；只返回模型名。Codex 没有 provider 清单。
 #[tauri::command]
 pub async fn get_available_models(
     source: String,
@@ -68,6 +72,28 @@ pub async fn get_available_models(
 ) -> Result<Vec<String>, String> {
     tauri::async_runtime::spawn_blocking(move || {
         model_catalog::get_available_models(&source, distro.as_deref())
+    })
+    .await
+    .map_err(|e| format!("任务执行失败: {e}"))?
+}
+
+/// 按模型价格表逐事件计算费用，支持每日时段与上下文区间条件规则。
+#[tauri::command]
+pub async fn get_cost_estimates(
+    db: State<'_, Database>,
+    source: String,
+    pricing: HashMap<String, ModelPricing>,
+) -> Result<Vec<ModelCost>, String> {
+    let db = db.inner().clone();
+    tauri::async_runtime::spawn_blocking(move || {
+        let source = match source.as_str() {
+            "kimi" => dao::SpeedSource::Kimi,
+            "codex" => dao::SpeedSource::Codex,
+            "kimi-win" => dao::SpeedSource::WinKimi,
+            "wsl-codex" => dao::SpeedSource::WslCodex,
+            other => return Err(format!("不支持的费用数据来源: {other}")),
+        };
+        cost::calculate(&db, source, &pricing)
     })
     .await
     .map_err(|e| format!("任务执行失败: {e}"))?

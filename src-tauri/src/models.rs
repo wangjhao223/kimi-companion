@@ -1,4 +1,4 @@
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
 use std::sync::{Arc, Mutex};
 
 /// 当前正在运行（或已被本应用接管）的 kimi web 实例。
@@ -26,6 +26,41 @@ pub struct LaunchStatus {
     pub remote_control: bool,
     /// 远程控制链接；未开启或未解析到为 None
     pub rc_url: Option<String>,
+}
+
+/// 一条条件计费规则：每日 HH:mm 时段与上下文区间可组合，首个匹配规则生效。
+#[derive(Debug, Clone, Deserialize)]
+pub struct PricingRule {
+    pub start_time: Option<String>,
+    pub end_time: Option<String>,
+    /// 最小提示词 token（含），最大提示词 token（不含），None 表示不限。
+    pub min_context: Option<i64>,
+    pub max_context: Option<i64>,
+    pub input: f64,
+    pub output: f64,
+    pub cache: f64,
+    pub cache_write: Option<f64>,
+}
+
+/// 一个模型的价格表；advanced_enabled=false 时忽略 rules。
+#[derive(Debug, Clone, Deserialize)]
+pub struct ModelPricing {
+    pub input: f64,
+    pub output: f64,
+    pub cache: f64,
+    pub cache_write: Option<f64>,
+    pub advanced_enabled: Option<bool>,
+    pub rules: Option<Vec<PricingRule>>,
+}
+
+/// 单模型逐事件计价后的四个周期金额（人民币元）。
+#[derive(Debug, Clone, Default, Serialize)]
+pub struct ModelCost {
+    pub model: String,
+    pub total: f64,
+    pub today: f64,
+    pub this_week: f64,
+    pub this_month: f64,
 }
 
 /// 一个时间段内的 token 用量合计。

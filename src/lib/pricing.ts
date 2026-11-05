@@ -3,6 +3,21 @@
 
 import { useSyncExternalStore } from "react";
 
+export interface PricingRule {
+  /** 前端列表 key，后端计价时忽略 */
+  id: string;
+  /** 每日开始/结束时间 HH:mm；留空表示不限，支持跨零点 */
+  start_time?: string;
+  end_time?: string;
+  /** 提示词上下文最小值（含）/最大值（不含），单位 tokens */
+  min_context?: number;
+  max_context?: number;
+  input: number;
+  output: number;
+  cache: number;
+  cache_write?: number;
+}
+
 export interface ModelPrice {
   /** 输入（未命中缓存） */
   input: number;
@@ -12,6 +27,10 @@ export interface ModelPrice {
   cache: number;
   /** 缓存创建（写入）。旧本地数据没有此字段，计价时按 0 处理 */
   cache_write?: number;
+  /** 是否启用条件规则；关闭时只使用上面的默认单价 */
+  advanced_enabled?: boolean;
+  /** 自上而下匹配，首条满足条件的价格规则生效 */
+  rules?: PricingRule[];
 }
 
 export type PricingTable = Record<string, ModelPrice>;

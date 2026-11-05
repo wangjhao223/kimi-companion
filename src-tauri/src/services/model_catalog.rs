@@ -1,10 +1,11 @@
-//! ModelCatalogService：读取 kimi CLI 的模型清单，只向前端返回模型名。
+//! ModelCatalogService：读取 Kimi Code 的模型清单，只向前端返回模型名。
 //!
 //! - source=kimi：在指定 WSL 发行版内执行 `kimi provider list --json`（经 wsl::run_in_wsl）；
-//! - source=kimi-win：Windows 原生执行同一命令，子进程带 CREATE_NO_WINDOW；
+//! - source=kimi-win：直接读取 `%USERPROFILE%\.kimi-code\config.toml`。Windows PATH 里的
+//!   `kimi` 可能是已停维护的旧 kimi-cli，不能再依赖它查询 Kimi Code 配置；
 //! - 解析根对象 `models` 的每一项，按 `${provider}/${model}` 生成名称，provider 开头的
 //!   `managed:` 去掉（与账本里的 `kimi-code/k3` 对齐），去重排序；
-//! - 只返回模型名，原始 JSON（providers 里含 API key）绝不透传到前端；
+//! - 只返回模型名，原始配置（providers 里含 API key）绝不透传到前端；
 //! - Codex 没有 provider 清单，模型筛选沿用历史用量，因此直接报错。
 
 use std::collections::BTreeSet;
@@ -27,7 +28,7 @@ pub fn get_available_models(source: &str, distro: Option<&str>) -> Result<Vec<St
                 .map_err(|e| format!("读取 kimi 模型清单失败: {e}"))?;
             parse_models(&output)
         }
-        "kimi-win" => parse_models(&run_kimi_on_windows()?),
+        "kimi-win" => parse_toml_models(&read_windows_config()?),
         "codex" | "wsl-codex" => {
             Err("Codex 没有 provider 清单，模型筛选应沿用历史用量".to_string())
         }
@@ -35,36 +36,16 @@ pub fn get_available_models(source: &str, distro: Option<&str>) -> Result<Vec<St
     }
 }
 
-/// Windows 原生 kimi CLI 执行 `provider list --json`。
-#[cfg(windows)]
-fn run_kimi_on_windows() -> Result<String, String> {
-    use std::os::windows::process::CommandExt;
-    use std::process::Command;
-
-    const CREATE_NO_WINDOW: u32 = 0x0800_0000;
-
-    let output = Command::new("kimi")
-        .args(["provider", "list", "--json"])
-        .creation_flags(CREATE_NO_WINDOW)
-        .output()
-        .map_err(|e| format!("无法执行 kimi 命令（Windows 是否已安装 kimi CLI？）: {e}"))?;
-
-    if !output.status.success() {
-        let stderr = String::from_utf8_lossy(&output.stderr).trim().to_string();
-        let code = output.status.code();
-        return Err(if stderr.is_empty() {
-            format!("kimi provider list 失败（退出码 {code:?}）")
-        } else {
-            format!("kimi provider list 失败（退出码 {code:?}）: {stderr}")
-        });
-    }
-
-    Ok(String::from_utf8_lossy(&output.stdout).into_owned())
-}
-
-#[cfg(not(windows))]
-fn run_kimi_on_windows() -> Result<String, String> {
-    Err("kimi-win 模型清单仅支持 Windows".to_string())
+/// Windows 桌面端没有可供 GUI 调用的独立 Kimi Code CLI，直接读活动配置文件。
+fn read_windows_config() -> Result<String, String> {
+    let home = std::env::var_os("USERPROFILE")
+        .or_else(|| std::env::var_os("HOME"))
+        .ok_or_else(|| "无法定位 Windows 用户目录".to_string())?;
+    let path = std::path::PathBuf::from(home)
+        .join(".kimi-code")
+        .join("config.toml");
+    std::fs::read_to_string(&path)
+        .map_err(|e| format!("无法读取 Kimi Code 配置 {}: {e}", path.display()))
 }
 
 /// 解析 `kimi provider list --json` 的 stdout。
@@ -110,9 +91,58 @@ pub fn parse_models(output: &str) -> Result<Vec<String>, String> {
     Ok(names.into_iter().collect())
 }
 
+/// 解析 Windows 桌面端 config.toml；与 JSON 路径使用相同的模型名归一化规则。
+fn parse_toml_models(content: &str) -> Result<Vec<String>, String> {
+    let root: toml::Value = toml::from_str(content)
+        .map_err(|e| format!("Kimi Code config.toml 解析失败: {e}"))?;
+    let models = root
+        .get("models")
+        .and_then(toml::Value::as_table)
+        .ok_or_else(|| "Kimi Code 配置缺少 models 表".to_string())?;
+
+    let mut names = BTreeSet::new();
+    for entry in models.values() {
+        let provider = entry
+            .get("provider")
+            .and_then(toml::Value::as_str)
+            .map(str::trim)
+            .unwrap_or("");
+        let model = entry
+            .get("model")
+            .and_then(toml::Value::as_str)
+            .map(str::trim)
+            .unwrap_or("");
+        let provider = provider.strip_prefix("managed:").unwrap_or(provider);
+        if provider.is_empty() || model.is_empty() {
+            continue;
+        }
+        names.insert(format!("{provider}/{model}"));
+    }
+    Ok(names.into_iter().collect())
+}
+
 #[cfg(test)]
 mod tests {
-    use super::parse_models;
+    use super::{parse_models, parse_toml_models};
+
+    #[test]
+    fn parses_windows_toml_models() {
+        let input = r#"
+[providers."managed:kimi-code"]
+apiKey = "sk-should-never-leak"
+[models."kimi-code/k3"]
+provider = "managed:kimi-code"
+model = "k3"
+[models."deepseek/deepseek-flash"]
+provider = "deepseek"
+model = "deepseek-flash"
+"#;
+        assert_eq!(
+            parse_toml_models(input).unwrap(),
+            vec!["deepseek/deepseek-flash", "kimi-code/k3"]
+        );
+        assert!(parse_toml_models("[providers]").is_err());
+    }
 
     #[test]
     fn parses_models_and_strips_managed_prefix() {

@@ -1,4 +1,7 @@
+import { useState } from "react";
+import { useQuery } from "@tanstack/react-query";
 import { abbrevModel, formatTokens } from "../../lib/format";
+import { getCostEstimates } from "../../lib/api";
 import { useUnit } from "../../lib/unit";
 import {
   computeCost,
@@ -13,17 +16,20 @@ import {
   useProviderSelection,
 } from "../../lib/providerFilter";
 import type { AgentSource, ModelUsage, StatsSummary } from "../../types";
+import ConditionalPricing from "./ConditionalPricing";
 
 const EMPTY_PRICE: ModelPrice = { input: 0, output: 0, cache: 0, cache_write: 0 };
 
-const PRICE_FIELDS: { key: keyof ModelPrice; label: string }[] = [
+type PriceField = "input" | "output" | "cache" | "cache_write";
+
+const PRICE_FIELDS: { key: PriceField; label: string }[] = [
   { key: "input", label: "输入" },
   { key: "output", label: "输出" },
   { key: "cache", label: "缓存读" },
   { key: "cache_write", label: "缓存写" },
 ];
 
-/** 费用估算完整版：按供应商分组，支持多供应商筛选与合计。 */
+/** 费用估算完整版：供应商分组、多供应商筛选、逐事件条件计费。 */
 export default function CostCard({
   summary,
   source,
@@ -37,6 +43,31 @@ export default function CostCard({
   const [pricing, setPricing] = usePricing();
   const { providers, providerOf, ready } = useProviderCatalog(summary, source, distro);
   const [selected, setSelected] = useProviderSelection("cost", source, providers, ready);
+  const hiddenKey = `kimi-companion.cost-input-hidden.${source}`;
+  const [hidden, setHidden] = useState(() => {
+    try {
+      return localStorage.getItem(hiddenKey) === "true";
+    } catch {
+      return false;
+    }
+  });
+  const changeHidden = (value: boolean) => {
+    setHidden(value);
+    try {
+      localStorage.setItem(hiddenKey, String(value));
+    } catch {
+      // 存储不可用时仅保留当前界面状态。
+    }
+  };
+  const costQuery = useQuery({
+    queryKey: ["cost-estimates", source, pricing],
+    queryFn: () => getCostEstimates(source, pricing),
+    refetchInterval: 10_000,
+    placeholderData: (previous) => previous,
+  });
+  const costs = new Map((costQuery.data ?? []).map((cost) => [cost.model, cost]));
+  const costOf = (m: ModelUsage) =>
+    costs.get(m.model)?.total ?? computeCost(m, pricing[m.model] ?? EMPTY_PRICE);
 
   const models = summary?.by_model ?? [];
   const visibleModels = models.filter(
@@ -54,41 +85,43 @@ export default function CostCard({
     });
   };
 
-  const totalCost = visibleModels.reduce(
-    (acc, m) => acc + computeCost(m, pricing[m.model] ?? EMPTY_PRICE),
-    0
-  );
+  // 隐藏输入区时，卡片顶部仍显示全部模型费用，不受供应商筛选影响。
+  const totalCost = (hidden ? models : visibleModels).reduce((acc, m) => acc + costOf(m), 0);
 
   const renderRow = (m: ModelUsage) => {
     const price = pricing[m.model] ?? EMPTY_PRICE;
-    const cost = computeCost(m, price);
     return (
-      <div
-        key={m.model}
-        className="grid grid-cols-[minmax(0,1fr)_repeat(4,3rem)_4rem] items-center gap-2 text-base"
-      >
-        <span
-          className="truncate font-mono text-zinc-700 dark:text-zinc-300"
-          title={`${m.model} · 用量 ${formatTokens(m.input + m.output + m.cache_read + m.cache_creation, unit)}`}
-        >
-          {abbrevModel(m.model)}
-        </span>
-        {PRICE_FIELDS.map((f) => (
-          // 非受控输入：避免 Number 归一化吞掉输入中的 "0."、"1."。
-          <input
-            key={f.key}
-            type="number"
-            min={0}
-            step={0.01}
-            defaultValue={price[f.key] || ""}
-            placeholder="0"
-            onChange={(e) => update(m.model, f.key, Number(e.target.value) || 0)}
-            className="w-full min-w-0 rounded border border-zinc-300 bg-white px-1.5 py-0.5 text-right font-mono text-zinc-800 outline-none focus:border-zinc-400 dark:border-zinc-800 dark:bg-zinc-900 dark:text-zinc-200 dark:focus:border-zinc-600 [appearance:textfield] [&::-webkit-inner-spin-button]:appearance-none [&::-webkit-outer-spin-button]:appearance-none"
-          />
-        ))}
-        <span className="text-right font-mono text-zinc-700 dark:text-zinc-300">
-          {formatCost(cost)}
-        </span>
+      <div key={m.model} className="min-w-0">
+        <div className="grid grid-cols-[minmax(0,1fr)_repeat(4,3rem)_4rem] items-center gap-2 text-base">
+          <div className="relative flex min-w-0 items-center gap-1">
+            <span
+              className="min-w-0 flex-1 truncate font-mono text-zinc-700 dark:text-zinc-300"
+              title={`${m.model} · 用量 ${formatTokens(m.input + m.output + m.cache_read + m.cache_creation, unit)}`}
+            >
+              {abbrevModel(m.model)}
+            </span>
+            <ConditionalPricing
+              price={price}
+              onChange={(next) => setPricing({ ...pricing, [m.model]: next })}
+            />
+          </div>
+          {PRICE_FIELDS.map((f) => (
+            // 非受控输入：避免 Number 归一化吞掉输入中的 "0."、"1."。
+            <input
+              key={f.key}
+              type="number"
+              min={0}
+              step={0.01}
+              defaultValue={price[f.key] || ""}
+              placeholder="0"
+              onChange={(e) => update(m.model, f.key, Number(e.target.value) || 0)}
+              className="w-full min-w-0 rounded border border-zinc-300 bg-white px-1.5 py-0.5 text-right font-mono text-zinc-800 outline-none focus:border-zinc-400 dark:border-zinc-800 dark:bg-zinc-900 dark:text-zinc-200 dark:focus:border-zinc-600 [appearance:textfield] [&::-webkit-inner-spin-button]:appearance-none [&::-webkit-outer-spin-button]:appearance-none"
+            />
+          ))}
+          <span className="text-right font-mono text-zinc-700 dark:text-zinc-300">
+            {formatCost(costOf(m))}
+          </span>
+        </div>
       </div>
     );
   };
@@ -105,11 +138,16 @@ export default function CostCard({
             label="费用明细"
             providers={providers}
             selected={selected}
-            onChange={setSelected}
+            hidden={hidden}
+            onHide={() => changeHidden(true)}
+            onChange={(next) => {
+              changeHidden(false);
+              setSelected(next);
+            }}
           />
         </div>
       </div>
-      {models.length === 0 ? (
+      {!hidden && (models.length === 0 ? (
         <p className="text-sm text-zinc-400 dark:text-zinc-600">暂无数据</p>
       ) : (
         <div className="space-y-1.5">
@@ -138,7 +176,7 @@ export default function CostCard({
             订阅制模型（如 kimi-code 托管套餐）不按量计费，留 0 即可。
           </p>
         </div>
-      )}
+      ))}
     </section>
   );
 }

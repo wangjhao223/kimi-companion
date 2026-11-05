@@ -285,6 +285,45 @@ impl SpeedSource {
     }
 }
 
+/// 一条用于逐事件计费的记录；local_time 为本地时区 HH:mm。
+#[derive(Debug, Clone)]
+pub struct CostEventRow {
+    pub ts: i64,
+    pub model: String,
+    pub input: i64,
+    pub output: i64,
+    pub cache_read: i64,
+    pub cache_creation: i64,
+    pub local_time: String,
+}
+
+/// 读取指定数据源的全部计费事件。表名只来自内部枚举，无 SQL 注入入口。
+pub fn cost_events(conn: &Connection, source: SpeedSource) -> Result<Vec<CostEventRow>, String> {
+    let mut stmt = conn
+        .prepare(&format!(
+            "SELECT ts, model, input_tokens, output_tokens, cache_read, cache_creation, \
+                    strftime('%H:%M', ts/1000, 'unixepoch', 'localtime') \
+             FROM {} ORDER BY id",
+            source.table()
+        ))
+        .map_err(|e| format!("预编译计费事件查询失败: {e}"))?;
+    let rows = stmt
+        .query_map([], |r| {
+            Ok(CostEventRow {
+                ts: r.get(0)?,
+                model: r.get(1)?,
+                input: r.get(2)?,
+                output: r.get(3)?,
+                cache_read: r.get(4)?,
+                cache_creation: r.get(5)?,
+                local_time: r.get(6)?,
+            })
+        })
+        .map_err(|e| format!("计费事件查询失败: {e}"))?;
+    rows.collect::<Result<Vec<_>, _>>()
+        .map_err(|e| format!("读取计费事件失败: {e}"))
+}
+
 /// 单个模型的当前速度：与最近完成记录生成区间重叠的各会话速度之和（tok/s）。
 #[derive(Debug, Clone, PartialEq)]
 pub struct ModelSpeedRow {

@@ -29,7 +29,7 @@ function unique(values: string[]): string[] {
 }
 
 /** 当前供应商目录：Kimi 以 provider 配置为准，Codex 统一归 OpenAI。
- *  已删除供应商的历史模型全部归“其他”，旧供应商名本身不出现在选项里。 */
+ *  已删除供应商或模型的历史用量全部归“其他”，旧名称不再挂在现有供应商下。 */
 export function useProviderCatalog(
   summary: StatsSummary | undefined,
   source: AgentSource,
@@ -48,19 +48,28 @@ export function useProviderCatalog(
     () => unique((summary?.by_model ?? []).map((m) => m.model)),
     [summary]
   );
+  const currentModels = useMemo(
+    () =>
+      hasCatalog && catalogQuery.isSuccess
+        ? unique(catalogQuery.data ?? [])
+        : usageModels,
+    [catalogQuery.data, catalogQuery.isSuccess, hasCatalog, usageModels]
+  );
   const currentProviders = useMemo(() => {
     if (!hasCatalog) return usageModels.length > 0 ? ["openai"] : [];
-    const models = catalogQuery.isSuccess ? (catalogQuery.data ?? []) : usageModels;
-    return unique(models.map(rawProvider).filter(Boolean)).sort();
-  }, [catalogQuery.data, catalogQuery.isSuccess, hasCatalog, usageModels]);
+    return unique(currentModels.map(rawProvider).filter(Boolean)).sort();
+  }, [currentModels, hasCatalog, usageModels]);
 
   const providerOf = useCallback(
     (model: string) => {
       if (!hasCatalog) return "openai";
+      // 供应商仍存在但模型已删除时也不能继续挂在该供应商下，例如已移除的
+      // ai-chat/gpt-5.6-sol；历史用量统一归入“其他”。
+      if (!currentModels.includes(model)) return OTHER_PROVIDER;
       const provider = rawProvider(model);
       return currentProviders.includes(provider) ? provider : OTHER_PROVIDER;
     },
-    [currentProviders, hasCatalog]
+    [currentModels, currentProviders, hasCatalog]
   );
 
   const providers = useMemo(() => {
@@ -149,16 +158,21 @@ export function ProviderFilter({
   providers,
   selected,
   onChange,
+  hidden = false,
+  onHide,
 }: {
   label: string;
   providers: string[];
   selected: string[];
   onChange: (providers: string[]) => void;
+  /** 费用明细专用：隐藏输入区，不影响共享的供应商筛选。 */
+  hidden?: boolean;
+  onHide?: () => void;
 }) {
   const [open, setOpen] = useState(false);
   const rootRef = useRef<HTMLDivElement>(null);
   const triggerRef = useRef<HTMLButtonElement>(null);
-  const all = selected.length === 0;
+  const all = !hidden && selected.length === 0;
 
   useEffect(() => {
     if (!open) return;
@@ -178,12 +192,18 @@ export function ProviderFilter({
     };
   }, [open]);
 
-  const summary = all
-    ? "全部"
-    : selected.length === 1
-      ? providerLabel(selected[0])
-      : `已选 ${selected.length}`;
-  const title = all ? "全部供应商" : selected.map(providerLabel).join("、");
+  const summary = hidden
+    ? "隐藏"
+    : all
+      ? "全部"
+      : selected.length === 1
+        ? providerLabel(selected[0])
+        : `已选 ${selected.length}`;
+  const title = hidden
+    ? "隐藏费用输入区，总额仍显示全部模型"
+    : all
+      ? "全部供应商"
+      : selected.map(providerLabel).join("、");
 
   return (
     <div ref={rootRef} className="relative shrink-0">
@@ -206,6 +226,17 @@ export function ProviderFilter({
           aria-label={`${label}供应商筛选`}
           className="absolute right-0 top-full z-50 mt-1 max-h-56 w-40 max-w-[calc(100vw-1rem)] overflow-y-auto rounded-md border border-zinc-200 bg-white py-1 text-xs shadow-lg dark:border-zinc-700 dark:bg-zinc-800"
         >
+          {onHide && (
+            <label className="flex cursor-pointer items-center gap-1.5 border-b border-zinc-200 px-2 py-1 text-zinc-700 hover:bg-zinc-100 dark:border-zinc-700 dark:text-zinc-200 dark:hover:bg-zinc-700/60">
+              <input
+                type="checkbox"
+                checked={hidden}
+                onChange={onHide}
+                className="h-3 w-3 shrink-0 accent-emerald-600 dark:accent-emerald-400"
+              />
+              <span>隐藏</span>
+            </label>
+          )}
           <label className="flex cursor-pointer items-center gap-1.5 px-2 py-1 text-zinc-700 hover:bg-zinc-100 dark:text-zinc-200 dark:hover:bg-zinc-700/60">
             <input
               type="checkbox"

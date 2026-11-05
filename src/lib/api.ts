@@ -6,6 +6,7 @@ import type {
   HeatmapDay,
   LaunchStatus,
   LedgerStatus,
+  ModelCost,
   RatePoint,
   SpeedStats,
   StatsSummary,
@@ -98,6 +99,14 @@ export function getStatsSpeed(): Promise<SpeedStats> {
  *  Codex 没有模型清单，后端会报错，前端不要调用。 */
 export function getAvailableModels(source: string, distro?: string): Promise<string[]> {
   return invoke<string[]>("get_available_models", { source, distro: distro ?? null });
+}
+
+/** 按价格表逐事件计算各模型费用；条件规则包含每日时段与提示词上下文区间。 */
+export function getCostEstimates(
+  source: AgentSource,
+  pricing: import("./pricing").PricingTable
+): Promise<ModelCost[]> {
+  return invoke<ModelCost[]>("get_cost_estimates", { source, pricing });
 }
 
 // ---------- Codex 侧（Windows 本地 rollout 导入的统计） ----------

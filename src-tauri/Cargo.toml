@@ -1,6 +1,6 @@
 [package]
 name = "kimi-companion"
-version = "1.5.0"
+version = "1.6.0"
 description = "One-click launcher for kimi web running in WSL"
 edition = "2021"
 
@@ -19,3 +19,4 @@ serde_json = "1"
 reqwest = { version = "0.12", features = ["blocking", "json"] }
 rusqlite = { version = "0.32", features = ["bundled"] }
 base64 = "0.22"
+toml = "0.8"

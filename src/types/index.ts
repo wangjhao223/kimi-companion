@@ -37,6 +37,15 @@ export interface StatsSummary {
   this_month_by_model: ModelUsage[];
 }
 
+/** 单模型逐事件条件计价后的各周期费用（元）。 */
+export interface ModelCost {
+  model: string;
+  total: number;
+  today: number;
+  this_week: number;
+  this_month: number;
+}
+
 export interface HeatmapDay {
   /** 本地时区日期 YYYY-MM-DD */
   date: string;
