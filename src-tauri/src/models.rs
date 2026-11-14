@@ -133,7 +133,7 @@ pub struct RatePoint {
 pub struct ModelSpeedStats {
     /// 模型名；空串表示未知模型，由前端回退显示
     pub model: String,
-    /// 当前速度：与最近完成记录生成区间重叠的各会话速度之和
+    /// 最近速度：五分钟内重叠会话分别按最近三条记录加权，再跨会话求和
     pub current_speed: f64,
 }
 

@@ -77,7 +77,7 @@ export interface RatePoint {
 export interface ModelSpeedStats {
   /** 模型名；空串表示未知模型，由前端回退显示 */
   model: string;
-  /** 当前叠加速度（tok/s）：与基准记录生成区间重叠的各会话速度之和（每个会话只取其最新一条重叠记录） */
+  /** 最近叠加速度（tok/s）：五分钟内与基准区间重叠的会话之和；每会话最近三条按总输出/总耗时加权 */
   current_speed: number;
 }
 

@@ -120,7 +120,7 @@ pub fn get_rates(db: &Database, minutes: Option<u32>) -> Result<Vec<RatePoint>, 
     db.with_conn(|conn| Ok(to_rate_points(dao::minute_rates(conn, minutes)?)))
 }
 
-/// 输出速度：以每个模型最近完成记录为基准，生成区间重叠的会话速度求和，
+/// 输出速度：以每个模型最近完成记录为基准，重叠会话按最近三条记录加权后求和，
 /// 最近使用的模型排最前（tok/s）。
 pub fn get_speed(db: &Database) -> Result<SpeedStats, String> {
     speed_stats(db, dao::SpeedSource::Kimi)
@@ -185,7 +185,7 @@ pub fn get_codex_rates(db: &Database, minutes: Option<u32>) -> Result<Vec<RatePo
     db.with_conn(|conn| Ok(to_rate_points(dao::codex_minute_rates(conn, minutes)?)))
 }
 
-/// Codex 输出速度：以每个模型最近完成记录为基准，生成区间重叠的会话速度求和，
+/// Codex 输出速度：以每个模型最近完成记录为基准，重叠会话按最近三条记录加权后求和，
 /// 最近使用的模型排最前（tok/s）。
 pub fn get_codex_speed(db: &Database) -> Result<SpeedStats, String> {
     speed_stats(db, dao::SpeedSource::Codex)
@@ -250,7 +250,7 @@ pub fn get_win_kimi_rates(db: &Database, minutes: Option<u32>) -> Result<Vec<Rat
     db.with_conn(|conn| Ok(to_rate_points(dao::win_kimi_minute_rates(conn, minutes)?)))
 }
 
-/// Win Kimi 输出速度：以每个模型最近完成记录为基准，生成区间重叠的会话速度求和，
+/// Win Kimi 输出速度：以每个模型最近完成记录为基准，重叠会话按最近三条记录加权后求和，
 /// 最近使用的模型排最前（tok/s）。
 pub fn get_win_kimi_speed(db: &Database) -> Result<SpeedStats, String> {
     speed_stats(db, dao::SpeedSource::WinKimi)
@@ -315,7 +315,7 @@ pub fn get_wsl_codex_rates(db: &Database, minutes: Option<u32>) -> Result<Vec<Ra
     db.with_conn(|conn| Ok(to_rate_points(dao::wsl_codex_minute_rates(conn, minutes)?)))
 }
 
-/// WSL Codex 输出速度：以每个模型最近完成记录为基准，生成区间重叠的会话速度求和，
+/// WSL Codex 输出速度：以每个模型最近完成记录为基准，重叠会话按最近三条记录加权后求和，
 /// 最近使用的模型排最前（tok/s）。
 pub fn get_wsl_codex_speed(db: &Database) -> Result<SpeedStats, String> {
     speed_stats(db, dao::SpeedSource::WslCodex)

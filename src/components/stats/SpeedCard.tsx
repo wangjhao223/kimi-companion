@@ -12,8 +12,8 @@ function displayName(model: string): string {
   return model.trim() || "未知模型";
 }
 
-/** 输出速度小卡（1×1）：每个模型一行显示当前叠加速度（tok/s，同模型并行会话的生成速度
- *  按时间重叠累加）。顺序完全取后端返回；多模型时列表内部滚动。 */
+/** 输出速度小卡（1×1）：显示最近五分钟的叠加速度；同模型并行会话按时间重叠，
+ *  每个会话取最近三条记录加权后累加。顺序取后端返回；多模型时列表内部滚动。 */
 export default function SpeedCard({ source }: { source: AgentSource }) {
   const speedQuery = useQuery({
     queryKey: ["stats-speed", source],
@@ -24,7 +24,7 @@ export default function SpeedCard({ source }: { source: AgentSource }) {
 
   return (
     <section className="flex h-full min-w-0 flex-col rounded-xl border border-zinc-200 bg-white px-1.5 py-2.5 shadow-[inset_0_1px_0_rgba(255,255,255,0.03)] dark:border-zinc-800/60 dark:bg-zinc-900/50">
-      <p className="shrink-0 text-sm text-zinc-500">输出速度（当前）</p>
+      <p className="shrink-0 text-sm text-zinc-500">输出速度（最近）</p>
       {models.length === 0 ? (
         <p className="mt-0.5 shrink-0 font-mono text-xl font-semibold text-emerald-600 dark:text-emerald-300">
           —

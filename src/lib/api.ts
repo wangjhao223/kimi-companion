@@ -88,7 +88,7 @@ export function getStatsRates(minutes?: number): Promise<RatePoint[]> {
   return invoke<RatePoint[]>("get_stats_rates", { minutes: minutes ?? null });
 }
 
-/** 输出速度：每个模型的当前叠加速度（tok/s）——同模型并行会话的生成速度按时间重叠累加；
+/** 输出速度：最近五分钟内同模型并行会话按时间重叠累加；每会话最近三条加权。
  *  顺序取后端返回（基准记录 ts 降序、并列按模型名）。 */
 export function getStatsSpeed(): Promise<SpeedStats> {
   return invoke<SpeedStats>("get_stats_speed");

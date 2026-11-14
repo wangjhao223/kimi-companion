@@ -95,6 +95,16 @@ pub fn run(conn: &Connection) -> Result<(), String> {
             conn.execute_batch(&format!("ALTER TABLE {table} ADD COLUMN duration_ms INTEGER"))
                 .map_err(|e| format!("{table} 加 duration_ms 列失败: {e}"))?;
         }
+
+        // v3：旧版可能把数天前的 llm.request 错配给新记录；异常耗时不参与速度统计。
+        conn.execute(
+            &format!(
+                "UPDATE {table} SET duration_ms = NULL \
+                 WHERE duration_ms IS NOT NULL AND (duration_ms <= 0 OR duration_ms > 86400000)"
+            ),
+            [],
+        )
+        .map_err(|e| format!("清理 {table} 异常生成耗时失败: {e}"))?;
     }
     Ok(())
 }

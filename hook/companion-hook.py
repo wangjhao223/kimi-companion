@@ -9,8 +9,9 @@ Also runnable standalone:
     companion-hook.py --backfill     # scan ALL existing sessions once
 
 Design notes:
-- Per-file byte offsets are kept in companion-hook.state.json, so repeat
-  invocations only read new bytes.
+- Per-file byte offsets and pending generation starts are kept in
+  companion-hook.state.json, so repeat invocations only read new bytes and
+  long generations can be timed across chunks.
 - A flock serializes concurrent hook invocations from parallel sessions.
 - After writing new records, POSTs the companion app's sync-trigger port so
   it syncs immediately (fail-open; the app's 30s polling is the fallback).
@@ -27,6 +28,8 @@ KIMI_DIR = os.path.expanduser("~/.kimi-code")
 LEDGER = os.path.join(KIMI_DIR, "token-ledger.jsonl")
 STATE = os.path.join(KIMI_DIR, "companion-hook.state.json")
 LOCK = os.path.join(KIMI_DIR, "companion-hook.lock")
+TIMING_KEY = "__generation_starts__"
+MAX_DURATION_MS = 24 * 60 * 60 * 1000
 
 # Kimi Companion 应用的联动触发端口（只绑 Windows 侧 loopback）。
 # WSL2 镜像网络模式下 WSL 内可经 127.0.0.1 直达；NAT 模式下够不到，
@@ -64,6 +67,7 @@ def process_wire(path, state, out):
     size = os.path.getsize(path)
     if offset > size:  # file was truncated/rotated; re-read from scratch
         offset = 0
+        state.get(TIMING_KEY, {}).pop(path, None)
     if offset == size:
         return 0
 
@@ -85,20 +89,25 @@ def process_wire(path, state, out):
     state[path] = offset + len(complete)
 
     count = 0
-    # 本次消费的字节内按 agentId 追踪最近的 llm.request 时刻，给 usage.record
-    # 配出生成耗时（duration_ms）。配对跨不出本次 chunk：若请求行落在更早的
-    # 已消费字节里（如 Interrupt 把一轮切进两次 hook 运行），duration 落 null。
-    last_request = {}
+    # 起点跨 chunk 持久化：30 秒回填可能把一次长生成切进两个批次。
+    # 新版 wire 不一定有 llm.request，因此同时识别 step.begin；起点配对一次即消费。
+    generation_starts = dict(state.get(TIMING_KEY, {}).get(path, {}))
     for line in complete.splitlines():
-        if b'"llm.request"' in line:
+        if b"llm.request" in line or b"step.begin" in line:
             try:
                 event = json.loads(line)
             except ValueError:
                 continue
-            if event.get("type") == "llm.request":
+            loop_event = event.get("event") or {}
+            is_start = (
+                event.get("type") == "llm.request"
+                or (event.get("type") == "context.append_loop_event"
+                    and loop_event.get("type") == "step.begin")
+            )
+            if is_start:
                 t = event.get("time")
                 if isinstance(t, (int, float)):
-                    last_request[event.get("agentId") or agent_dir or ""] = t
+                    generation_starts[event.get("agentId") or agent_dir or ""] = t
             continue
         if b'"usage.record"' not in line:
             continue
@@ -110,11 +119,12 @@ def process_wire(path, state, out):
             continue
         usage = event.get("usage") or {}
         rec_ts = event.get("time")
-        req_ts = last_request.get(event.get("agentId") or agent_dir or "")
+        agent_key = event.get("agentId") or agent_dir or ""
+        req_ts = generation_starts.pop(agent_key, None)
         duration = None
         if isinstance(rec_ts, (int, float)) and isinstance(req_ts, (int, float)):
             d = int(rec_ts - req_ts)
-            if d >= 0:
+            if 0 < d <= MAX_DURATION_MS:
                 duration = d
         record = {
             "ts": event.get("time"),
@@ -129,6 +139,7 @@ def process_wire(path, state, out):
         }
         out.write(json.dumps(record, ensure_ascii=False) + "\n")
         count += 1
+    state.setdefault(TIMING_KEY, {})[path] = generation_starts
     return count
 
 

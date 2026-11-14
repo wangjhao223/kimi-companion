@@ -53,7 +53,7 @@ pub async fn get_stats_rates(
         .map_err(|e| format!("任务执行失败: {e}"))?
 }
 
-/// 输出速度：以每个模型最近完成记录为基准，生成区间重叠的会话速度求和，
+/// 输出速度：以每个模型最近完成记录为基准，重叠会话按最近三条记录加权后求和，
 /// 最近使用的模型排最前（tok/s）。
 #[tauri::command]
 pub async fn get_stats_speed(db: State<'_, Database>) -> Result<SpeedStats, String> {

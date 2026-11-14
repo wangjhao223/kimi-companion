@@ -4,6 +4,7 @@
 //! - 按 meta.ledger_offset 字节偏移增量读，尾部残缺行不消费（下轮补上）；
 //! - offset 超过文件大小（账本被截断/轮换）时回到 0 从头读，靠 UNIQUE+IGNORE 去重；
 //! - 后台线程每 30 秒同步一轮，首轮 offset=0 即自然完成全量 backfill；
+//! - 每轮先增量扫描 wire.jsonl，避免 Stop 等 hook 未触发时账本停止更新；
 //! - 所有错误只记录到内存状态（LedgerStatus.last_error），线程永不 panic。
 
 use std::io::{Read, Seek, SeekFrom};
@@ -99,6 +100,11 @@ pub fn sync_round(db: &Database, status: &SharedLedgerStatus) {
 
 /// 同步单个发行版的账本增量，返回本轮新插入条数。
 pub fn sync_distro(db: &Database, distro: &str) -> Result<usize, String> {
+    // Stop / Interrupt / SessionEnd 只在特定时机触发，kimi web 空闲卸载时还可能
+    // 跳过 SessionEnd。每轮主动做一次增量回填，保证这些情况下仍能持续计数。
+    wsl::run_in_wsl(distro, "python3 ~/.kimi-code/companion-hook.py --backfill")
+        .map_err(|e| format!("回填 token 账本失败: {e}"))?;
+
     let mut file = open_ledger(distro)?;
     let size = file
         .metadata()

@@ -3,7 +3,8 @@
 //! - 数据源：`%USERPROFILE%\.kimi-code\sessions\**\wire.jsonl`（递归，文件名精确匹配）；
 //!   与 WSL 侧 hook 解析的是同一格式，但桌面端不装 hook，直接扫文件；
 //! - 每个文件按 meta["win_kimi_off:<path>"] 字节偏移增量读，尾部残缺行留到下轮；
-//! - offset 超过文件大小（文件被重建）回 0 重读，靠 UNIQUE + INSERT OR IGNORE 去重；
+//! - 生成起点持久化在 meta["win_kimi_start:<path>"]，兼容 llm.request 与 step.begin；
+//! - offset 超过文件大小（文件被重建）回 0 重读，靠 UNIQUE + UPSERT 去重并补正耗时；
 //! - 行格式：顶层 `type` 为 `usage.record` 的事件，字段映射与 hook/companion-hook.py
 //!   完全一致：ts=event.time（毫秒）、session_id=event.sessionId（缺省回退到
 //!   wire.jsonl 上三级目录名，即 sessions/<wd>/<session_id>/agents/<agent>/wire.jsonl
@@ -23,8 +24,10 @@ use crate::models::{SharedWinKimiStatus, WinKimiStatus};
 
 const SYNC_INTERVAL: Duration = Duration::from_secs(15);
 const OFFSET_KEY_PREFIX: &str = "win_kimi_off:";
+const START_KEY_PREFIX: &str = "win_kimi_start:";
 /// wire.jsonl 解析规则版本：格式适配变更时 +1，触发一次全量重读。
-const PARSER_VERSION: &str = "1";
+const PARSER_VERSION: &str = "2";
+const MAX_DURATION_MS: i64 = 24 * 60 * 60 * 1000;
 
 pub fn new_shared_status() -> SharedWinKimiStatus {
     Arc::new(Mutex::new(WinKimiStatus::default()))
@@ -45,7 +48,7 @@ pub fn spawn_sync_thread(db: Database, status: SharedWinKimiStatus) {
 }
 
 /// 解析器版本迁移：版本不符时清空所有文件偏移，下一轮即全量重读
-/// （UNIQUE + INSERT OR IGNORE 保证重读不重复计数，无需清表）。
+/// （UNIQUE + UPSERT 只补正 duration_ms，不重复计数，无需清表）。
 fn migrate_offsets(db: &Database) {
     let current = db
         .with_conn(|c| dao::get_meta(c, "win_kimi_parser_v"))
@@ -55,6 +58,7 @@ fn migrate_offsets(db: &Database) {
         return;
     }
     let _ = db.with_conn(|c| dao::delete_meta_prefix(c, OFFSET_KEY_PREFIX));
+    let _ = db.with_conn(|c| dao::delete_meta_prefix(c, START_KEY_PREFIX));
     let _ = db.with_conn(|c| dao::set_meta(c, "win_kimi_parser_v", PARSER_VERSION));
 }
 
@@ -116,7 +120,7 @@ fn collect_wire_files(dir: &Path, out: &mut Vec<PathBuf>) {
     }
 }
 
-/// 同步单个 wire.jsonl 的增量，返回本轮新插入条数。
+/// 同步单个 wire.jsonl 的增量，返回本轮插入或补正耗时的记录数。
 fn sync_file(db: &Database, path: &Path) -> Result<usize, String> {
     let mut file = std::fs::File::open(path).map_err(|e| format!("打开失败: {e}"))?;
     let size = file
@@ -125,13 +129,18 @@ fn sync_file(db: &Database, path: &Path) -> Result<usize, String> {
         .len();
 
     let offset_key = format!("{OFFSET_KEY_PREFIX}{}", path.display());
+    let start_key = format!("{START_KEY_PREFIX}{}", path.display());
     let mut offset: u64 = db
         .with_conn(|c| dao::get_meta(c, &offset_key))?
         .and_then(|v| v.parse().ok())
         .unwrap_or(0);
+    let mut generation_start = db
+        .with_conn(|c| dao::get_meta(c, &start_key))?
+        .and_then(|v| v.parse::<i64>().ok());
     if offset > size {
-        // 文件被截断或重建，从头重读（INSERT OR IGNORE 保证不重复）
+        // 文件被截断或重建，从头重读（UPSERT 保证不重复计数）
         offset = 0;
+        generation_start = None;
     }
     if offset == size {
         return Ok(0);
@@ -160,21 +169,12 @@ fn sync_file(db: &Database, path: &Path) -> Result<usize, String> {
         .map(|s| s.to_string_lossy().into_owned())
         .unwrap_or_default();
     let mut rows: Vec<dao::UsageEventRow> = Vec::new();
-    // 本次消费的字节内按 agentId 追踪最近的 llm.request 时刻，给 usage.record
-    // 配出生成耗时（与 companion-hook.py 同规则；配对跨不出本次 chunk）。
-    let mut last_request: std::collections::HashMap<String, i64> = Default::default();
+    // 每个 wire 文件只属于一个 agent；起点持久化到 meta，长生成跨 chunk 也能配对。
     for line in text.lines() {
-        if has_type(line, "llm.request") {
+        if has_type(line, "llm.request") || has_type(line, "step.begin") {
             if let Ok(v) = serde_json::from_str::<serde_json::Value>(line) {
-                if v.get("type").and_then(|t| t.as_str()) == Some("llm.request") {
-                    if let Some(t) = v.get("time").and_then(|x| x.as_i64()) {
-                        let agent = v
-                            .get("agentId")
-                            .and_then(|x| x.as_str())
-                            .unwrap_or("")
-                            .to_string();
-                        last_request.insert(agent, t);
-                    }
+                if let Some(t) = parse_generation_start(&v) {
+                    generation_start = Some(t);
                 }
             }
             continue;
@@ -182,7 +182,7 @@ fn sync_file(db: &Database, path: &Path) -> Result<usize, String> {
         if !has_type(line, "usage.record") {
             continue;
         }
-        if let Some(row) = parse_usage_line(line, &fallback_id, &last_request) {
+        if let Some(row) = parse_usage_line(line, &fallback_id, &mut generation_start) {
             rows.push(row);
         }
     }
@@ -190,6 +190,13 @@ fn sync_file(db: &Database, path: &Path) -> Result<usize, String> {
     let inserted = db.with_conn_mut(|c| dao::insert_win_kimi_events(c, &rows))?;
     let new_offset = offset + complete_len as u64;
     db.with_conn(|c| dao::set_meta(c, &offset_key, &new_offset.to_string()))?;
+    db.with_conn(|c| {
+        dao::set_meta(
+            c,
+            &start_key,
+            &generation_start.map(|v| v.to_string()).unwrap_or_default(),
+        )
+    })?;
     Ok(inserted)
 }
 
@@ -199,12 +206,28 @@ fn has_type(line: &str, t: &str) -> bool {
     line.contains(&format!("\"type\":\"{t}\"")) || line.contains(&format!("\"type\": \"{t}\""))
 }
 
-/// 宽松解析 usage.record 行（与 companion-hook.py 同规则）：缺 ts 或 usage 体则跳过。
-/// duration_ms = 本行 time 与同 agentId 最近 llm.request 时刻之差，配对失败为 None。
+/// 旧版 llm.request 和新版 step.begin 都可作为一次模型生成的起点。
+fn parse_generation_start(v: &serde_json::Value) -> Option<i64> {
+    let direct = v.get("type").and_then(|t| t.as_str()) == Some("llm.request");
+    let step_begin = v.get("type").and_then(|t| t.as_str())
+        == Some("context.append_loop_event")
+        && v.get("event")
+            .and_then(|e| e.get("type"))
+            .and_then(|t| t.as_str())
+            == Some("step.begin");
+    if direct || step_begin {
+        v.get("time").and_then(|t| t.as_i64())
+    } else {
+        None
+    }
+}
+
+/// 宽松解析 usage.record 行：缺 ts 或 usage 体则跳过。起点配对一次即消费，
+/// 只接受 (0, 24h] 的耗时，防止旧起点跨天污染速度。
 fn parse_usage_line(
     line: &str,
     fallback_id: &str,
-    last_request: &std::collections::HashMap<String, i64>,
+    generation_start: &mut Option<i64>,
 ) -> Option<dao::UsageEventRow> {
     let v: serde_json::Value = serde_json::from_str(line).ok()?;
     if v.get("type")?.as_str()? != "usage.record" {
@@ -218,14 +241,9 @@ fn parse_usage_line(
         .and_then(|x| x.as_str())
         .filter(|s| !s.is_empty())
         .unwrap_or(fallback_id);
-    let agent_id = v.get("agentId").and_then(|x| x.as_str()).unwrap_or("");
-    let duration_ms = last_request.get(agent_id).and_then(|req| {
-        let d = ts - req;
-        if d >= 0 {
-            Some(d)
-        } else {
-            None
-        }
+    let duration_ms = generation_start.take().and_then(|start| {
+        let d = ts - start;
+        (d > 0 && d <= MAX_DURATION_MS).then_some(d)
     });
     Some(dao::UsageEventRow {
         ts,
@@ -249,4 +267,42 @@ fn now_ms() -> i64 {
         .duration_since(UNIX_EPOCH)
         .map(|d| d.as_millis() as i64)
         .unwrap_or(0)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn step_begin_is_a_generation_start() {
+        let value = serde_json::json!({
+            "type": "context.append_loop_event",
+            "event": {"type": "step.begin"},
+            "time": 1234
+        });
+        assert_eq!(parse_generation_start(&value), Some(1234));
+    }
+
+    #[test]
+    fn usage_consumes_start_once() {
+        let usage = r#"{"type":"usage.record","time":2500,"model":"m","usage":{"output":300}}"#;
+        let mut start = Some(1_000);
+        let row = parse_usage_line(usage, "session", &mut start).expect("解析用量失败");
+        assert_eq!(row.duration_ms, Some(1_500));
+        assert_eq!(start, None);
+        let row = parse_usage_line(usage, "session", &mut start).expect("解析用量失败");
+        assert_eq!(row.duration_ms, None);
+    }
+
+    #[test]
+    fn stale_start_is_rejected() {
+        let usage = format!(
+            r#"{{"type":"usage.record","time":{},"model":"m","usage":{{"output":300}}}}"#,
+            MAX_DURATION_MS + 1
+        );
+        let mut start = Some(0);
+        let row = parse_usage_line(&usage, "session", &mut start).expect("解析用量失败");
+        assert_eq!(row.duration_ms, None);
+        assert_eq!(start, None);
+    }
 }
