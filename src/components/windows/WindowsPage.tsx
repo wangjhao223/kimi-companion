@@ -10,12 +10,12 @@ import ModelShareBar from "../stats/ModelShareBar";
 import HeatmapSection from "../heatmap/HeatmapSection";
 import CodexStatusCard from "../codex/CodexStatusCard";
 import CodexMissingRow from "../CodexMissingRow";
-import ToolSelect, { useToolSelection } from "../ToolSelect";
+import type { Tool } from "../ToolSelect";
 import WinKimiPanel from "./WinKimiPanel";
+import { useModuleVisibility } from "../../lib/moduleVisibility";
 
-export default function WindowsPage() {
-  // 程序选择：Kimi Code / Codex 二选一显示，选择按页面持久化
-  const [tool, setTool] = useToolSelection("kimi-companion.tool.windows");
+export default function WindowsPage({ tool }: { tool: Tool }) {
+  const { isVisible } = useModuleVisibility();
 
   const summaryQuery = useQuery({
     queryKey: ["stats-summary", "kimi-win"],
@@ -42,16 +42,29 @@ export default function WindowsPage() {
   });
   const codexSummary = codexSummaryQuery.data;
 
-  const subtitle =
-    tool === "kimi-code" ? "Windows 桌面端" : "Windows 本地 · 自动扫描";
+  // 模块显隐：整行模块全部隐藏时不渲染该行，避免残留空网格与间距
+  const controlVisible = isVisible("control");
+  const summaryVisible = isVisible("summary");
+  const ratesVisible = isVisible("rates");
+  const costSummaryVisible = isVisible("costSummary");
+  const heatmapVisible = isVisible("heatmap");
+  const speedVisible = isVisible("speed");
+  const trendVisible = isVisible("trend");
+  const costDetailVisible = isVisible("costDetail");
+  const modelShareVisible = isVisible("modelShare");
+
+  const controlRowVisible = controlVisible || summaryVisible;
+  const ratesRowVisible = ratesVisible || costSummaryVisible;
+  const heatRowVisible = heatmapVisible || speedVisible;
+  const detailRowVisible = trendVisible || costDetailVisible || modelShareVisible;
+  const rowsVisible =
+    controlRowVisible || ratesRowVisible || heatRowVisible || detailRowVisible;
+
+  // 首个可见行不加上边距，后续行保持 mt-2 的行间距
+  const rowGap = (hasRowAbove: boolean) => (hasRowAbove ? "mt-2 " : "");
 
   return (
-    <div className="mx-auto w-full max-w-5xl px-2 py-3">
-      <div className="flex items-baseline gap-3">
-        <ToolSelect value={tool} onChange={setTool} />
-        <span className="text-sm text-zinc-500">{subtitle}</span>
-      </div>
-
+    <div className="mx-auto w-full max-w-5xl px-2 pb-3">
       {tool === "kimi-code" ? (
         /*
           统一单元网格（1 个基本单元 = 一张 token 计数小卡）：
@@ -63,88 +76,136 @@ export default function WindowsPage() {
           桌面端无配额/账本同步模块（那两个是 WSL kimi web 特有）。
         */
         <>
-          <div className="mt-2 grid grid-cols-3 items-stretch gap-x-1 gap-y-2">
-            <div className="min-w-0 col-span-1">
-              <WinKimiPanel />
+          {controlRowVisible && (
+            <div className="grid grid-cols-3 items-stretch gap-x-1 gap-y-2">
+              {controlVisible && (
+                <div className="min-w-0 col-span-1">
+                  <WinKimiPanel />
+                </div>
+              )}
+              {summaryVisible && (
+                <div className="min-w-0 col-span-2">
+                  <SummaryCards summary={summary} source="kimi-win" />
+                </div>
+              )}
             </div>
-            <div className="min-w-0 col-span-2">
-              <SummaryCards summary={summary} source="kimi-win" />
+          )}
+          {ratesRowVisible && (
+            <div className={`${rowGap(controlRowVisible)}grid grid-cols-3 items-stretch gap-x-1 gap-y-2`}>
+              {ratesVisible && (
+                <div className="min-w-0 col-span-2">
+                  <RateChart source="kimi-win" />
+                </div>
+              )}
+              {costSummaryVisible && (
+                <div className="min-w-0 col-span-1">
+                  <CostSummaryCard summary={summary} source="kimi-win" />
+                </div>
+              )}
             </div>
-          </div>
-          <div className="mt-2 grid grid-cols-3 items-stretch gap-x-1 gap-y-2">
-            <div className="min-w-0 col-span-2">
-              <RateChart source="kimi-win" />
+          )}
+          {heatRowVisible && (
+            <div className={`${rowGap(controlRowVisible || ratesRowVisible)}grid grid-cols-3 items-stretch gap-x-1 gap-y-2`}>
+              {heatmapVisible && (
+                <div className="min-w-0 col-span-2">
+                  <HeatmapSection source="kimi-win" />
+                </div>
+              )}
+              {speedVisible && (
+                <div className="min-w-0 col-span-1">
+                  <SpeedCard source="kimi-win" />
+                </div>
+              )}
             </div>
-            <div className="min-w-0 col-span-1">
-              <CostSummaryCard summary={summary} source="kimi-win" />
+          )}
+          {detailRowVisible && (
+            <div className={`${rowGap(controlRowVisible || ratesRowVisible || heatRowVisible)}grid grid-cols-1 items-stretch gap-x-1 gap-y-2 md:grid-cols-3`}>
+              {trendVisible && (
+                <div className="min-w-0 md:col-span-3">
+                  <TrendChart source="kimi-win" />
+                </div>
+              )}
+              {costDetailVisible && (
+                <div className="min-w-0 md:col-span-2 md:row-span-2">
+                  <CostCard summary={summary} source="kimi-win" />
+                </div>
+              )}
+              {modelShareVisible && (
+                <div className="min-w-0 md:col-span-1 md:row-span-2">
+                  <ModelShareBar summary={summary} />
+                </div>
+              )}
             </div>
-          </div>
-          <div className="mt-2 grid grid-cols-3 items-stretch gap-x-1 gap-y-2">
-            <div className="min-w-0 col-span-2">
-              <HeatmapSection source="kimi-win" />
-            </div>
-            <div className="min-w-0 col-span-1">
-              <SpeedCard source="kimi-win" />
-            </div>
-          </div>
-          <div className="mt-2 grid grid-cols-1 items-stretch gap-x-1 gap-y-2 md:grid-cols-3">
-            <div className="min-w-0 md:col-span-3">
-              <TrendChart source="kimi-win" />
-            </div>
-            <div className="min-w-0 md:col-span-2 md:row-span-2">
-              <CostCard summary={summary} source="kimi-win" />
-            </div>
-            <div className="min-w-0 md:col-span-1 md:row-span-2">
-              <ModelShareBar summary={summary} />
-            </div>
-          </div>
+          )}
         </>
-      ) : (
-        <div className="mt-2">
-          {codexFound ? (
-            /* 网格同 Kimi Code 区块 */
-            <>
-              <div className="grid grid-cols-1 items-stretch gap-x-1 gap-y-2 md:grid-cols-3">
+      ) : !codexFound ? (
+        codexStatusQuery.data ? <CodexMissingRow side="Windows 侧" /> : null
+      ) : rowsVisible ? (
+        <div>
+          {/* 网格同 Kimi Code 区块 */}
+          {controlRowVisible && (
+            <div className="grid grid-cols-1 items-stretch gap-x-1 gap-y-2 md:grid-cols-3">
+              {controlVisible && (
                 <div className="min-w-0 md:col-span-1 md:row-span-2">
                   <CodexStatusCard source="codex" />
                 </div>
+              )}
+              {summaryVisible && (
                 <div className="min-w-0 md:col-span-2 md:row-span-2">
                   <SummaryCards summary={codexSummary} source="codex" />
                 </div>
-              </div>
-              <div className="mt-2 grid grid-cols-3 items-stretch gap-x-1 gap-y-2">
+              )}
+            </div>
+          )}
+          {ratesRowVisible && (
+            <div className={`${rowGap(controlRowVisible)}grid grid-cols-3 items-stretch gap-x-1 gap-y-2`}>
+              {ratesVisible && (
                 <div className="min-w-0 col-span-2">
                   <RateChart source="codex" />
                 </div>
+              )}
+              {costSummaryVisible && (
                 <div className="min-w-0 col-span-1">
                   <CostSummaryCard summary={codexSummary} source="codex" />
                 </div>
-              </div>
-              <div className="mt-2 grid grid-cols-3 items-stretch gap-x-1 gap-y-2">
+              )}
+            </div>
+          )}
+          {heatRowVisible && (
+            <div className={`${rowGap(controlRowVisible || ratesRowVisible)}grid grid-cols-3 items-stretch gap-x-1 gap-y-2`}>
+              {heatmapVisible && (
                 <div className="min-w-0 col-span-2">
                   <HeatmapSection source="codex" />
                 </div>
+              )}
+              {speedVisible && (
                 <div className="min-w-0 col-span-1">
                   <SpeedCard source="codex" />
                 </div>
-              </div>
-              <div className="mt-2 grid grid-cols-1 items-stretch gap-x-1 gap-y-2 md:grid-cols-3">
+              )}
+            </div>
+          )}
+          {detailRowVisible && (
+            <div className={`${rowGap(controlRowVisible || ratesRowVisible || heatRowVisible)}grid grid-cols-1 items-stretch gap-x-1 gap-y-2 md:grid-cols-3`}>
+              {trendVisible && (
                 <div className="min-w-0 md:col-span-3">
                   <TrendChart source="codex" />
                 </div>
+              )}
+              {costDetailVisible && (
                 <div className="min-w-0 md:col-span-2 md:row-span-2">
                   <CostCard summary={codexSummary} source="codex" />
                 </div>
+              )}
+              {modelShareVisible && (
                 <div className="min-w-0 md:col-span-1 md:row-span-2">
                   <ModelShareBar summary={codexSummary} />
                 </div>
-              </div>
-            </>
-          ) : codexStatusQuery.data ? (
-            <CodexMissingRow side="Windows 侧" />
-          ) : null}
+              )}
+            </div>
+          )}
         </div>
-      )}
+      ) : null}
     </div>
   );
 }

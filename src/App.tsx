@@ -2,29 +2,16 @@ import { useState } from "react";
 import WslPage from "./components/wsl/WslPage";
 import WindowsPage from "./components/windows/WindowsPage";
 import TitleBar from "./components/TitleBar";
-import { UnitProvider, useUnit } from "./lib/unit";
-import type { Unit } from "./lib/format";
-import { ThemeProvider, useTheme } from "./lib/theme";
-import type { ThemeMode } from "./lib/theme";
+import ToolSelect, { useToolSelection } from "./components/ToolSelect";
+import { UnitProvider } from "./lib/unit";
+import { ThemeProvider } from "./lib/theme";
+import { ModuleVisibilityProvider } from "./lib/moduleVisibility";
 
 type Tab = "wsl" | "windows";
 
 const TABS: { key: Tab; label: string }[] = [
   { key: "wsl", label: "wsl" },
   { key: "windows", label: "windows" },
-];
-
-const UNITS: { key: Unit; label: string }[] = [
-  { key: "k", label: "k" },
-  { key: "M", label: "M" },
-  { key: "B", label: "B" },
-  { key: "auto", label: "自适应" },
-];
-
-const THEME_OPTIONS: { key: ThemeMode; label: string }[] = [
-  { key: "light", label: "亮" },
-  { key: "dark", label: "暗" },
-  { key: "system", label: "跟随" },
 ];
 
 /** 顶部标签选择持久化：重开应用后回到上次所在的标签页。 */
@@ -50,13 +37,17 @@ function useTabSelection(): [Tab, (t: Tab) => void] {
 
 function Shell() {
   const [tab, setTab] = useTabSelection();
-  const { unit, setUnit } = useUnit();
-  const { mode, setMode } = useTheme();
+  // 两个平台各自记忆上次选择的程序（Kimi Code / Codex）
+  const [wslTool, setWslTool] = useToolSelection("kimi-companion.tool.wsl");
+  const [windowsTool, setWindowsTool] = useToolSelection("kimi-companion.tool.windows");
+
+  const activeTool = tab === "wsl" ? wslTool : windowsTool;
+  const selectTool = tab === "wsl" ? setWslTool : setWindowsTool;
 
   return (
     <div className="flex min-h-screen flex-col">
       <TitleBar />
-      <nav className="sticky top-0 z-10 border-b border-zinc-200 bg-white/80 backdrop-blur dark:border-zinc-800/60 dark:bg-zinc-950/80">
+      <nav className="sticky top-9 z-20 border-b border-zinc-200 bg-white/80 backdrop-blur dark:border-zinc-800/60 dark:bg-zinc-950/80">
         <div className="mx-auto flex max-w-5xl items-center gap-1 px-2 py-1.5">
           {TABS.map((t) => (
             <button
@@ -72,43 +63,11 @@ function Shell() {
             </button>
           ))}
           <div className="ml-auto flex items-center gap-2">
-            <span className="text-xs text-zinc-400 dark:text-zinc-600">主题</span>
-            <div className="flex rounded-md border border-zinc-200 bg-white p-0.5 dark:border-zinc-800 dark:bg-zinc-900/50">
-              {THEME_OPTIONS.map((t) => (
-                <button
-                  key={t.key}
-                  className={`rounded px-1.5 py-0.5 text-xs transition-colors ${
-                    mode === t.key
-                      ? "bg-emerald-600 text-white"
-                      : "text-zinc-500 hover:text-zinc-800 dark:text-zinc-400 dark:hover:text-zinc-200"
-                  }`}
-                  onClick={() => setMode(t.key)}
-                >
-                  {t.label}
-                </button>
-              ))}
-            </div>
-            <span className="text-xs text-zinc-400 dark:text-zinc-600">单位</span>
-            <div className="flex rounded-md border border-zinc-200 bg-white p-0.5 dark:border-zinc-800 dark:bg-zinc-900/50">
-              {UNITS.map((u) => (
-                <button
-                  key={u.key}
-                  className={`rounded px-1.5 py-0.5 text-xs font-mono transition-colors ${
-                    unit === u.key
-                      ? "bg-emerald-600 text-white"
-                      : "text-zinc-500 hover:text-zinc-800 dark:text-zinc-400 dark:hover:text-zinc-200"
-                  }`}
-                  onClick={() => setUnit(u.key)}
-                >
-                  {u.label}
-                </button>
-              ))}
-            </div>
+            <ToolSelect value={activeTool} onChange={selectTool} />
           </div>
         </div>
       </nav>
-      {tab === "wsl" && <WslPage />}
-      {tab === "windows" && <WindowsPage />}
+      {tab === "wsl" ? <WslPage tool={wslTool} /> : <WindowsPage tool={windowsTool} />}
     </div>
   );
 }
@@ -117,7 +76,9 @@ export default function App() {
   return (
     <ThemeProvider>
       <UnitProvider>
-        <Shell />
+        <ModuleVisibilityProvider>
+          <Shell />
+        </ModuleVisibilityProvider>
       </UnitProvider>
     </ThemeProvider>
   );

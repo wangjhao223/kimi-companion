@@ -2,6 +2,21 @@
 
 本项目遵循语义化版本（Semantic Versioning）。
 
+## [1.7.0] - 2026-11-16
+
+### 新增
+
+- 顶栏新增设置入口：按分组选择显示或隐藏 11 类界面模块，支持全部显示、全部隐藏、Escape 与遮罩关闭，选择本地持久化并统一应用于 WSL / Windows 的 Kimi Code 与 Codex 页面
+
+### 变更
+
+- TitleBar 与平台导航行滚动时始终固定；主题、单位设置移至 TitleBar，Kimi Code / Codex 下拉移至 WSL / Windows 标签所在行，两个平台分别记忆程序选择
+- 移除页面副标题及其顶部空白；实际渲染的首个可见模块始终紧贴导航，后续模块保持原行距
+
+### 修复
+
+- 设置弹窗通过 React Portal 挂载到 body，避免 TitleBar 的 backdrop-filter 改变 fixed 定位包含块，确保弹窗在整个窗口正中显示
+
 ## [1.6.1] - 2026-11-15
 
 ### 修复
